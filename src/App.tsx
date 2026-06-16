@@ -92,13 +92,10 @@ function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }, [state])
 
-  useEffect(() => {
-    if (!state.vehicles.some((vehicle) => vehicle.id === selectedVehicleId)) {
-      setSelectedVehicleId(state.vehicles[0]?.id ?? '')
-    }
-  }, [selectedVehicleId, state.vehicles])
-
-  const activeVehicle = state.vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? state.vehicles[0]
+  const activeVehicleId = state.vehicles.some((vehicle) => vehicle.id === selectedVehicleId)
+    ? selectedVehicleId
+    : state.vehicles[0]?.id ?? ''
+  const activeVehicle = state.vehicles.find((vehicle) => vehicle.id === activeVehicleId) ?? state.vehicles[0]
 
   const fuelEntries = useMemo(
     () => state.fuelEntries.filter((entry) => entry.vehicleId === activeVehicle.id),
@@ -234,7 +231,7 @@ function App() {
             <select
               id="vehicle-select"
               className="select-input"
-              value={selectedVehicleId}
+                value={activeVehicleId}
               onChange={(event) => setSelectedVehicleId(event.target.value)}
             >
               {state.vehicles.map((vehicle) => (

@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #080a0b;
+  --color-foreground: #ededed;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* BYD brand palette */
+  --color-byd-50: #ecfdf5;
+  --color-byd-100: #d1fae5;
+  --color-byd-200: #a7f3d0;
+  --color-byd-300: #6ee7b7;
+  --color-byd-400: #12b8a0;
+  --color-byd-500: #0d9488;
+  --color-byd-600: #0f766e;
+  --color-byd-700: #115e59;
+  --color-byd-800: #134e4a;
+  --color-byd-900: #042f2e;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}

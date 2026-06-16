@@ -20,10 +20,12 @@ interface CargaEntry {
   id: string;
   fecha: string;
   tipo: "CCS2" | "AC 7kW" | "AC 22kW";
-  energia: number;
+  pctInicial: number;
+  pctFinal: number;
+  kwhCargados: number;
   costo: number;
-  duracion: string;
-  kilometraje: number;
+  costoPorKwh: number;
+  kmEvObtenidos: number;
 }
 
 interface MantenimientoEntry {
@@ -37,16 +39,24 @@ interface MantenimientoEntry {
 
 interface VehicleSettings {
   vehiculo: string;
+  modelo: "king-gl" | "king-gs" | "personalizado";
+  capacidadBateria: number;
+  tipoCargador: "portatil110" | "portatil220" | "wallbox" | "publicaAC" | "publicaDC" | "otro";
+  periodoPago: "bimestral" | "mensual";
+  consumoBaseHogar: number;
+  costoKwhManual: number;
+  costoTotalRecibo: number;
+  fechaInicioPeriodo: string;
+  fechaFinPeriodo: string;
   rendimientoKmL: number;
   rendimientoKmKwh: number;
   precioGasolina: number;
-  precioKwh: number;
   totalKm: number;
 }
 
 type Section = "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes";
 
-type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | null;
+type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | null;
 
 type HistoryFilter = "hoy" | "semana" | "mes" | "ano";
 
@@ -100,54 +110,29 @@ function saveData<T>(key: string, data: T): void {
   }
 }
 
-// ── Seed data ────────────────────────────────────────────────────────────────
-const SEED_GASOLINA: GasolinaEntry[] = [
-  { id: "g1", fecha: "2026-06-16", litros: 15, costo: 45_200, kilometraje: 15000, concepto: "Carga rápida CCS2" },
-  { id: "g2", fecha: "2026-06-15", litros: 10, costo: 4_500, kilometraje: 14950, concepto: "Estacionamiento" },
-  { id: "g3", fecha: "2026-06-14", litros: 20, costo: 8_200, kilometraje: 14800, concepto: "Carga AC 7kW" },
-  { id: "g4", fecha: "2026-06-14", litros: 5, costo: 6_800, kilometraje: 14700, concepto: "Peaje autopista" },
-  { id: "g5", fecha: "2026-06-12", litros: 25, costo: 22_100, kilometraje: 14500, concepto: "Carga rápida CCS2" },
-  { id: "g6", fecha: "2026-06-11", litros: 8, costo: 95_000, kilometraje: 14000, concepto: "Mantenimiento preventivo" },
-];
-
-const SEED_CARGAS: CargaEntry[] = [
-  { id: "c1", fecha: "2026-06-15", tipo: "CCS2", energia: 42.5, costo: 18_400, duracion: "38 min", kilometraje: 15000 },
-  { id: "c2", fecha: "2026-06-14", tipo: "AC 7kW", energia: 28.0, costo: 8_200, duracion: "4 h 10 min", kilometraje: 14800 },
-  { id: "c3", fecha: "2026-06-12", tipo: "CCS2", energia: 51.2, costo: 22_100, duracion: "45 min", kilometraje: 14500 },
-  { id: "c4", fecha: "2026-06-10", tipo: "AC 22kW", energia: 35.8, costo: 12_600, duracion: "1 h 35 min", kilometraje: 14200 },
-  { id: "c5", fecha: "2026-06-08", tipo: "CCS2", energia: 38.0, costo: 16_500, duracion: "32 min", kilometraje: 13900 },
-];
-
-const SEED_MANTENIMIENTO: MantenimientoEntry[] = [
-  { id: "m1", fecha: "2026-06-12", servicio: "Cambio de aceite", km: 15_000, costo: 85_000, estado: "completado" },
-  { id: "m2", fecha: "2026-05-28", servicio: "Rotación de neumáticos", km: 12_500, costo: 32_000, estado: "completado" },
-  { id: "m3", fecha: "2026-07-10", servicio: "Frenos + pastillas", km: 20_000, costo: 210_000, estado: "pendiente" },
-  { id: "m4", fecha: "2026-08-05", servicio: "Batería 12V", km: 25_000, costo: 180_000, estado: "pendiente" },
-];
-
-const SEED_SETTINGS: VehicleSettings = {
+// ── Default settings (used when no config saved) ─────────────────────────
+const DEFAULT_SETTINGS: VehicleSettings = {
   vehiculo: "BYD King DM-i",
+  modelo: "king-gl",
+  capacidadBateria: 8.3,
+  tipoCargador: "wallbox",
+  periodoPago: "bimestral",
+  consumoBaseHogar: 300,
+  costoKwhManual: 180,
+  costoTotalRecibo: 3000,
+  fechaInicioPeriodo: "2026-01-01",
+  fechaFinPeriodo: "2026-02-28",
   rendimientoKmL: 18.5,
   rendimientoKmKwh: 6.2,
   precioGasolina: 1250,
-  precioKwh: 180,
   totalKm: 15000,
 };
 
-// ── Initialize localStorage with seeds if empty ──────────────────────────────
+// ── Initialize only settings on first mount ──────────────────────────────
 function initializeData(): void {
   if (typeof window === "undefined") return;
-  if (!localStorage.getItem(KEYS.gasolina)) {
-    saveData(KEYS.gasolina, SEED_GASOLINA);
-  }
-  if (!localStorage.getItem(KEYS.cargas)) {
-    saveData(KEYS.cargas, SEED_CARGAS);
-  }
-  if (!localStorage.getItem(KEYS.mantenimiento)) {
-    saveData(KEYS.mantenimiento, SEED_MANTENIMIENTO);
-  }
   if (!localStorage.getItem(KEYS.settings)) {
-    saveData(KEYS.settings, SEED_SETTINGS);
+    saveData(KEYS.settings, DEFAULT_SETTINGS);
   }
 }
 
@@ -187,7 +172,7 @@ function computeKpis() {
   const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
   const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
   const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, SEED_SETTINGS);
+  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
 
   const now = new Date();
 
@@ -446,27 +431,45 @@ function CargaForm({
   onClose: () => void;
 }) {
   const [tipo, setTipo] = useState<"CCS2" | "AC 7kW" | "AC 22kW">("CCS2");
-  const [energia, setEnergia] = useState("");
-  const [costo, setCosto] = useState("");
-  const [duracion, setDuracion] = useState("");
-  const [kilometraje, setKilometraje] = useState("");
+  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
+  const [pctInicial, setPctInicial] = useState("");
+  const [pctFinal, setPctFinal] = useState("");
+  const [costoTotal, setCostoTotal] = useState("");
+
+  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
+  const capacidadBateria = settings.capacidadBateria || 8.3;
+
+  const pctIni = parseFloat(pctInicial) || 0;
+  const pctFin = parseFloat(pctFinal) || 0;
+  const pctCargado = Math.max(0, pctFin - pctIni);
+  const kwhCargados = pctCargado > 0 ? Math.round(((pctCargado / 100) * capacidadBateria) * 10) / 10 : 0;
+  const costo = parseInt(costoTotal) || 0;
+  const costoPorKwh = kwhCargados > 0 ? Math.round(costo / kwhCargados) : 0;
+  const kmEvObtenidos = kwhCargados > 0 ? Math.round(kwhCargados * settings.rendimientoKmKwh) : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (pctFin <= pctIni) {
+      alert("El porcentaje final debe ser mayor al inicial");
+      return;
+    }
     const entry: CargaEntry = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      fecha: new Date().toISOString().split("T")[0],
+      fecha,
       tipo,
-      energia: parseFloat(energia) || 0,
-      costo: parseInt(costo) || 0,
-      duracion,
-      kilometraje: parseInt(kilometraje) || 0,
+      pctInicial: pctIni,
+      pctFinal: pctFin,
+      kwhCargados,
+      costo,
+      costoPorKwh,
+      kmEvObtenidos,
     };
     onSave(entry);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      <InputField label="Fecha" type="date" value={fecha} onChange={setFecha} required />
       <div>
         <label className="mb-1 block text-xs font-medium text-white/50">Tipo de carga</label>
         <select
@@ -474,15 +477,40 @@ function CargaForm({
           onChange={(e) => setTipo(e.target.value as "CCS2" | "AC 7kW" | "AC 22kW")}
           className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
         >
-          <option value="CCS2">CCS2</option>
-          <option value="AC 7kW">AC 7kW</option>
-          <option value="AC 22kW">AC 22kW</option>
+          <option value="CCS2">CCS2 — Carga rápida</option>
+          <option value="AC 7kW">AC 7kW — Carga lenta</option>
+          <option value="AC 22kW">AC 22kW — Carga semi-rápida</option>
         </select>
       </div>
-      <InputField label="Energía (kWh)" type="number" step="0.1" value={energia} onChange={setEnergia} required />
-      <InputField label="Costo ($)" type="number" value={costo} onChange={setCosto} required />
-      <InputField label="Duración" type="text" value={duracion} onChange={setDuracion} placeholder="ej. 38 min" required />
-      <InputField label="Kilometraje" type="number" value={kilometraje} onChange={setKilometraje} required />
+
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Batería % inicial" type="number" min="0" max="100" value={pctInicial} onChange={setPctInicial} required />
+        <InputField label="Batería % final" type="number" min="0" max="100" value={pctFinal} onChange={setPctFinal} required />
+      </div>
+
+      {/* Auto-calculated fields */}
+      <div className="rounded-xl border border-byd-500/20 bg-byd-500/5 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-byd-400">Cálculo automático</p>
+          <span className="text-[10px] text-white/30">{capacidadBateria} kWh bat.</span>
+        </div>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-white/40">kWh cargados</span>
+            <span className="font-semibold text-white">{kwhCargados} kWh</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Costo por kWh</span>
+            <span className="font-semibold text-white">${costoPorKwh.toLocaleString("es-CL")}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">km EV obtenidos</span>
+            <span className="font-semibold text-white">{kmEvObtenidos.toLocaleString()} km</span>
+          </div>
+        </div>
+      </div>
+
+      <InputField label="Costo total ($)" type="number" value={costoTotal} onChange={setCostoTotal} required />
       <div className="flex gap-2 pt-2">
         <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
           Cancelar
@@ -644,10 +672,244 @@ function TicketForm({
   );
 }
 
+// ── Settings form ────────────────────────────────────────────────────────────
+const MODELO_LABELS: Record<string, string> = {
+  "king-gl": "BYD King GL",
+  "king-gs": "BYD King GS",
+  personalizado: "Personalizado",
+};
+
+const PERIODO_LABELS: Record<string, string> = {
+  bimestral: "Bimestral (cada 2 meses)",
+  mensual: "Mensual",
+};
+
+const CARGADOR_LABELS: Record<string, string> = {
+  portatil110: "Cargador portátil 110V",
+  portatil220: "Cargador portátil 220V",
+  wallbox: "Wallbox",
+  publicaAC: "Carga pública AC",
+  publicaDC: "Carga pública DC",
+  otro: "Otro",
+};
+
+function SettingsForm({
+  settings,
+  onSave,
+  onClose,
+  onReset,
+  onResetSettings,
+}: {
+  settings: VehicleSettings;
+  onSave: (s: VehicleSettings) => void;
+  onClose: () => void;
+  onReset?: () => void;
+  onResetSettings?: () => void;
+}) {
+  const [modelo, setModelo] = useState(settings.modelo);
+  const [capacidadBateria, setCapacidadBateria] = useState(String(settings.capacidadBateria));
+  const [tipoCargador, setTipoCargador] = useState(settings.tipoCargador);
+  const [periodoPago, setPeriodoPago] = useState(settings.periodoPago);
+  const [consumoBaseHogar, setConsumoBaseHogar] = useState(String(settings.consumoBaseHogar));
+  const [costoKwhManual, setCostoKwhManual] = useState(String(settings.costoKwhManual));
+  const [costoTotalRecibo, setCostoTotalRecibo] = useState(String(settings.costoTotalRecibo));
+  const [fechaInicioPeriodo, setFechaInicioPeriodo] = useState(settings.fechaInicioPeriodo);
+  const [fechaFinPeriodo, setFechaFinPeriodo] = useState(settings.fechaFinPeriodo);
+  const [rendimientoKmKwh, setRendimientoKmKwh] = useState(String(settings.rendimientoKmKwh));
+  const [totalKm, setTotalKm] = useState(String(settings.totalKm));
+
+  const capacidad =
+    modelo === "king-gl" ? 8.3
+    : modelo === "king-gs" ? parseFloat(capacidadBateria) || 0
+    : parseFloat(capacidadBateria) || 0;
+
+  // Compute kWh auto from actual cargas in the current billing period
+  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
+  const kwhAutoReal = cargas
+    .filter((c) => c.fecha >= settings.fechaInicioPeriodo && c.fecha <= settings.fechaFinPeriodo)
+    .reduce((sum, c) => sum + c.kwhCargados, 0);
+  const kwhAutoRealRounded = Math.round(kwhAutoReal * 10) / 10;
+  const base = parseInt(consumoBaseHogar) || 0;
+  const kwhManual = parseInt(costoKwhManual) || 0;
+  const consumoTotalEstimado = base + kwhAutoRealRounded;
+  const costoAutoEstimado = Math.round(kwhAutoRealRounded * kwhManual);
+  const consumoTotalRecibo = parseInt(costoTotalRecibo) || 0;
+  const kwhTotalRecibo = kwhManual > 0 ? Math.round(consumoTotalRecibo / kwhManual) : 0;
+  const kwhAutoEstimado = Math.max(0, kwhTotalRecibo - base);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      ...settings,
+      modelo,
+      capacidadBateria: capacidad,
+      tipoCargador,
+      periodoPago,
+      consumoBaseHogar: parseInt(consumoBaseHogar) || 0,
+      costoKwhManual: parseInt(costoKwhManual) || 0,
+      costoTotalRecibo: parseInt(costoTotalRecibo) || 0,
+      fechaInicioPeriodo,
+      fechaFinPeriodo,
+      rendimientoKmKwh: parseFloat(rendimientoKmKwh) || 0,
+      totalKm: parseInt(totalKm) || 0,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-white/50">Modelo del vehículo</label>
+        <select value={modelo} onChange={(e) => setModelo(e.target.value as VehicleSettings["modelo"])}
+          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
+          <option value="king-gl">BYD King GL — 8.3 kWh</option>
+          <option value="king-gs">BYD King GS — Configurable</option>
+          <option value="personalizado">Personalizado</option>
+        </select>
+      </div>
+
+      {/* Battery capacity */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-white/50">
+          Capacidad de batería
+          {modelo === "king-gl" && <span className="ml-1 text-byd-400">(fija: 8.3 kWh)</span>}
+        </label>
+        {modelo === "king-gl" ? (
+          <div className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/50">
+            8.3 kWh — BYD King GL
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              step="0.1"
+              min="1"
+              value={capacidadBateria}
+              onChange={(e) => setCapacidadBateria(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
+              required
+            />
+            <span className="text-sm text-white/40">kWh</span>
+          </div>
+        )}
+      </div>
+
+      {modelo !== "king-gl" && (
+        <div className="rounded-xl border border-byd-500/20 bg-byd-500/5 p-3 text-center text-sm text-byd-400">
+          Capacidad: <strong>{capacidad} kWh</strong>
+        </div>
+      )}
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-white/50">Tipo de cargador habitual</label>
+        <select value={tipoCargador} onChange={(e) => setTipoCargador(e.target.value as VehicleSettings["tipoCargador"])}
+          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
+          {Object.entries(CARGADOR_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Electricity configuration */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.03] p-4">
+        <p className="mb-3 text-xs font-semibold text-white/60">Electricidad CFE México</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-white/50">Periodo de pago</label>
+            <select value={periodoPago} onChange={(e) => setPeriodoPago(e.target.value as VehicleSettings["periodoPago"])}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
+              {Object.entries(PERIODO_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField label="Fecha inicio periodo" type="date" value={fechaInicioPeriodo} onChange={setFechaInicioPeriodo} required />
+            <InputField label="Fecha fin periodo" type="date" value={fechaFinPeriodo} onChange={setFechaFinPeriodo} required />
+          </div>
+
+          <InputField label="Consumo base del hogar (kWh por periodo)" type="number" value={consumoBaseHogar} onChange={setConsumoBaseHogar} required />
+
+          <InputField label="Costo por kWh ($)" type="number" value={costoKwhManual} onChange={setCostoKwhManual} required />
+
+          <InputField label="Total del recibo ($)" type="number" value={costoTotalRecibo} onChange={setCostoTotalRecibo} required />
+
+          {/* Auto-calculated summary */}
+          <div className="rounded-xl border border-byd-500/20 bg-byd-500/5 p-3 text-sm">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-byd-400">
+              Resumen del periodo
+            </p>
+            <div className="space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-white/40">kWh cargados al auto</span>
+                <span className="font-semibold text-byd-400">{kwhAutoRealRounded} kWh</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Consumo total estimado</span>
+                <span className="font-semibold text-white">{consumoTotalEstimado} kWh</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Costo estimado del auto</span>
+                <span className="font-semibold text-white">${costoAutoEstimado.toLocaleString("es-CL")}</span>
+              </div>
+              <div className="border-t border-byd-500/10 pt-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/30">Referencia: recibo / kWh</span>
+                  <span className="text-white/30">{kwhAutoEstimado} kWh (est.)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <InputField label="Rendimiento eléctrico (km/kWh)" type="number" step="0.1" value={rendimientoKmKwh} onChange={setRendimientoKmKwh} required />
+      <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />
+
+      <div className="flex gap-2 pt-2">
+        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+          Cancelar
+        </button>
+        <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
+          Guardar configuración
+        </button>
+      </div>
+
+      <div className="border-t border-white/5 pt-4 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("¿Seguro que quieres borrar todos los datos?\n\nEsto eliminará:\n• Registros de gasolina\n• Cargas eléctricas\n• Mantenimiento\n• Tickets\n\nLa configuración del vehículo NO se borrará.")) {
+              onReset?.();
+            }
+          }}
+          className="w-full rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/15"
+        >
+          Borrar todos los datos
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("¿Restablecer la configuración del vehículo a valores de fábrica?")) {
+              onResetSettings?.();
+            }
+          }}
+          className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/15"
+        >
+          Restablecer configuración
+        </button>
+        <p className="text-center text-[10px] text-white/20">Los registros de gastos no se borran</p>
+      </div>
+    </form>
+  );
+}
+
 function InputField({
   label,
   type,
   step,
+  min,
+  max,
   value,
   onChange,
   placeholder,
@@ -656,6 +918,8 @@ function InputField({
   label: string;
   type: string;
   step?: string;
+  min?: string;
+  max?: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -667,6 +931,8 @@ function InputField({
       <input
         type={type}
         step={step}
+        min={min}
+        max={max}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -754,7 +1020,7 @@ function HistoryTable() {
       fecha: e.fecha,
       tipo: "Carga EV" as const,
       importe: e.costo,
-      observaciones: `${e.tipo} · ${e.energia} kWh · ${e.duracion}`,
+      observaciones: `${e.tipo} · ${e.kwhCargados} kWh (${e.pctInicial}% → ${e.pctFinal}%)`,
       source: "cargas" as const,
     })),
     ...mantenimiento.map((e) => ({
@@ -865,6 +1131,171 @@ function HistoryTable() {
   );
 }
 
+// ── Ticket components ────────────────────────────────────────────────────────
+function TicketDetailModal({
+  ticket,
+  onClose,
+}: {
+  ticket: TicketEntry | null;
+  onClose: () => void;
+}) {
+  if (!ticket) return null;
+  const catLabel: Record<string, string> = {
+    gasolina: "Gasolina",
+    carga: "Carga eléctrica",
+    mantenimiento: "Mantenimiento",
+    otro: "Otro",
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0d1117] p-5 shadow-2xl sm:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-white">{ticket.titulo}</h3>
+          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Image */}
+        <div className="mb-4 overflow-hidden rounded-xl bg-white/[0.03]">
+          <img src={ticket.imageBase64} alt={ticket.titulo} className="max-h-72 w-full object-contain" />
+        </div>
+
+        {/* Data */}
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-white/40">Fecha</span>
+            <span className="text-white/80">{formatDate(ticket.fecha)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Categoría</span>
+            <Tag variant={ticket.categoria === "mantenimiento" ? "amber" : "green"}>{catLabel[ticket.categoria]}</Tag>
+          </div>
+          {ticket.proveedor && (
+            <div className="flex justify-between">
+              <span className="text-white/40">Proveedor</span>
+              <span className="text-white/80">{ticket.proveedor}</span>
+            </div>
+          )}
+          {ticket.monto > 0 && (
+            <div className="flex justify-between">
+              <span className="text-white/40">Monto</span>
+              <span className="font-semibold text-white">{formatCurrency(ticket.monto)}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-white/40">OCR</span>
+            <span className={ticket.ocrProcesado ? "text-emerald-400" : "text-amber-400"}>
+              {ticket.ocrProcesado ? "Procesado" : "Pendiente"}
+            </span>
+          </div>
+          {ticket.ocrText && (
+            <div className="mt-2 rounded-lg bg-white/[0.03] p-3">
+              <p className="mb-1 text-[11px] font-medium text-white/30">Texto extraído (OCR)</p>
+              <p className="text-xs text-white/60 whitespace-pre-wrap">{ticket.ocrText}</p>
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose} className="mt-4 w-full rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
+  const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [selected, setSelected] = useState<TicketEntry | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setTickets(loadData<TicketEntry[]>(KEYS.tickets, []));
+  }, [refreshKey]);
+
+  const sorted = [...tickets].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+  const handleDelete = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("¿Eliminar este ticket?")) return;
+    const updated = tickets.filter((t) => t.id !== id);
+    saveData(KEYS.tickets, updated);
+    setRefreshKey((k) => k + 1);
+  };
+
+  const catIcon: Record<string, string> = {
+    gasolina: "⛽",
+    carga: "⚡",
+    mantenimiento: "🔧",
+    otro: "📄",
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Tickets" count={tickets.length} onAdd={onOpenForm} />
+
+      {sorted.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 py-12 text-white/30">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <p className="text-sm">No hay tickets aún</p>
+          <p className="text-xs">Sube la foto de tu primer ticket</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {sorted.map((ticket) => (
+            <div
+              key={ticket.id}
+              onClick={() => setSelected(ticket)}
+              className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all duration-200 hover:border-byd-500/30 hover:shadow-[0_0_20px_-8px_rgba(18,184,160,0.2)]"
+            >
+              <div className="relative aspect-[4/3] overflow-hidden bg-white/[0.03]">
+                <img
+                  src={ticket.imageBase64}
+                  alt={ticket.titulo}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
+                <button
+                  onClick={(e) => handleDelete(ticket.id, e)}
+                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-black/50 text-white/50 opacity-0 transition-opacity hover:bg-red-500/60 hover:text-white group-hover:opacity-100"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+                {!ticket.ocrProcesado && (
+                  <span className="absolute bottom-1.5 left-1.5 rounded-full bg-amber-500/20 px-2 py-0.5 text-[9px] font-medium text-amber-400">
+                    OCR pendiente
+                  </span>
+                )}
+              </div>
+              <div className="p-2.5 sm:p-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{catIcon[ticket.categoria]}</span>
+                  <p className="truncate text-sm font-medium text-white/80">{ticket.titulo}</p>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-[10px] text-white/30">{formatDateShort(ticket.fecha)}</span>
+                  {ticket.monto > 0 && <span className="text-xs font-semibold text-white/60">{formatCurrency(ticket.monto)}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <TicketDetailModal ticket={selected} onClose={() => setSelected(null)} />
+    </div>
+  );
+}
+
 // ── Chart components ─────────────────────────────────────────────────────────
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -963,7 +1394,7 @@ function GastoPorMes() {
 
 function RendimientoHistorico() {
   const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, SEED_SETTINGS);
+  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
 
   const data = useMemo(() => {
     const entries = gasolina
@@ -1003,7 +1434,7 @@ function RendimientoHistorico() {
 function ComparativoGasolinaVsElectricidad() {
   const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
   const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, SEED_SETTINGS);
+  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
 
   const data = useMemo(() => {
     const map = new Map<string, { gasolina: number; electricidad: number }>();
@@ -1079,6 +1510,7 @@ export default function Home() {
 
   // Load data
   const kpis = computeKpis();
+  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
   const gasolinaList = loadData<GasolinaEntry[]>(KEYS.gasolina, [])
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   const cargasList = loadData<CargaEntry[]>(KEYS.cargas, [])
@@ -1127,6 +1559,14 @@ export default function Home() {
             <div className="hidden text-right sm:block">
               <p className="text-[11px] text-white/40 sm:text-xs">{dateStr}</p>
             </div>
+            <button
+              onClick={() => setFormModal("settings")}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-white/[0.04] text-white/30 transition-colors hover:border-byd-500/30 hover:text-byd-400"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
             <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-1.5">
               <ProgressRing pct={batteryPct} />
               <div className="text-right">
@@ -1168,6 +1608,7 @@ export default function Home() {
           <NavTab active={section === "cargas"} label="⚡ Cargas EV" onClick={() => setSection("cargas")} />
           <NavTab active={section === "mantenimiento"} label="🔧 Mantenimiento" onClick={() => setSection("mantenimiento")} />
           <NavTab active={section === "historial"} label="📋 Historial" onClick={() => setSection("historial")} />
+          <NavTab active={section === "tickets"} label="🎫 Tickets" onClick={() => setSection("tickets")} />
           <NavTab active={section === "reportes"} label="📊 Reportes" onClick={() => setSection("reportes")} />
         </nav>
 
@@ -1220,14 +1661,17 @@ export default function Home() {
                       </div>
                       <div>
                         <p className="text-sm font-medium">
-                          {entry.tipo} · {entry.energia} kWh
+                          {entry.tipo}
                         </p>
                         <p className="text-[11px] text-white/30">
-                          {formatDateShort(entry.fecha)} · {entry.duracion} · {entry.kilometraje.toLocaleString()} km
+                          {formatDateShort(entry.fecha)} · {entry.kwhCargados} kWh ({entry.pctInicial}% → {entry.pctFinal}%)
                         </p>
                       </div>
                     </div>
-                    <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                      <p className="text-[10px] text-white/30">{entry.kmEvObtenidos} km</p>
+                    </div>
                   </div>
                 ))}
                 {cargasList.length === 0 && (
@@ -1276,6 +1720,9 @@ export default function Home() {
           {/* ── Historial ── */}
           {section === "historial" && <HistoryTable />}
 
+          {/* ── Tickets ── */}
+          {section === "tickets" && <TicketsView onOpenForm={() => setFormModal("ticket")} />}
+
           {/* ── Reportes ── */}
           {section === "reportes" && (
             <div className="space-y-4">
@@ -1323,6 +1770,39 @@ export default function Home() {
             setFormModal(null);
           }}
           onClose={() => setFormModal(null)}
+        />
+      </Modal>
+
+      <Modal isOpen={formModal === "ticket"} onClose={() => setFormModal(null)} title="Agregar ticket">
+        <TicketForm
+          onSave={(entry) => {
+            handleSave(KEYS.tickets, entry);
+            setFormModal(null);
+          }}
+          onClose={() => setFormModal(null)}
+        />
+      </Modal>
+
+      <Modal isOpen={formModal === "settings"} onClose={() => setFormModal(null)} title="Configuración del vehículo">
+        <SettingsForm
+          settings={settings}
+          onSave={(s) => {
+            saveData(KEYS.settings, s);
+            setKpiVersion((v) => v + 1);
+            setFormModal(null);
+          }}
+          onClose={() => setFormModal(null)}
+          onReset={() => {
+            const keysToClear = [KEYS.gasolina, KEYS.cargas, KEYS.mantenimiento, KEYS.tickets];
+            keysToClear.forEach((k) => localStorage.removeItem(k));
+            setFormModal(null);
+            setKpiVersion((v) => v + 1);
+          }}
+          onResetSettings={() => {
+            saveData(KEYS.settings, DEFAULT_SETTINGS);
+            setKpiVersion((v) => v + 1);
+            setFormModal(null);
+          }}
         />
       </Modal>
     </div>

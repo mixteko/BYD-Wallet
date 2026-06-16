@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BYD Wallet — Dashboard</title>
+    <meta
+      name="description"
+      content="Control de gastos, rendimiento y ahorro para tu BYD King"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="app-brand">
+          <div class="app-logo">BW</div>
+          <div>
+            <h1 class="app-title">BYD Wallet</h1>
+            <p class="app-subtitle">Control de gastos de tu vehículo</p>
+          </div>
+        </div>
+        <div class="header-meta">
+          <p class="vehicle-name">BYD King</p>
+          <p class="vehicle-model">2026 DM-i</p>
+        </div>
+      </header>
+
+      <!-- Loading -->
+      <div id="loading" class="state-screen">
+        <div class="spinner"></div>
+        <h2>Cargando datos...</h2>
+        <p>Obteniendo la información de tu vehículo desde la base de datos.</p>
+      </div>
+
+      <!-- Empty state (no data) -->
+      <div id="empty-state" class="state-screen hidden">
+        <div class="state-icon">📭</div>
+        <h2>Aún no hay datos</h2>
+        <p>
+          No se encontraron registros de recargas. Comienza agregando tu primera
+          carga de combustible.
+        </p>
+      </div>
+
+      <!-- Error state -->
+      <div id="error-state" class="state-screen hidden">
+        <div class="state-icon">⚠️</div>
+        <h2>Error al cargar datos</h2>
+        <p id="error-message"></p>
+        <button onclick="window.location.reload()">Intentar de nuevo</button>
+      </div>
+
+      <!-- Dashboard Content -->
+      <div id="dashboard-content" class="hidden">
+        <!-- KPIs -->
+        <section>
+          <h2 class="section-title">Resumen general</h2>
+          <div class="kpi-grid">
+            <!-- Odómetro -->
+            <div class="kpi-card highlight">
+              <span class="kpi-label">Odómetro actual</span>
+              <span class="kpi-value" id="odometro-valor">—</span>
+              <span class="kpi-sub">Kilometraje total recorrido</span>
+            </div>
+
+            <!-- Total gastado -->
+            <div class="kpi-card">
+              <span class="kpi-label">Total gastado en gasolina</span>
+              <span class="kpi-value" id="total-gastado-valor">—</span>
+              <span class="kpi-sub">Suma de todas las recargas</span>
+            </div>
+
+            <!-- Total litros -->
+            <div class="kpi-card">
+              <span class="kpi-label">Total litros cargados</span>
+              <span class="kpi-value" id="total-litros-valor">—</span>
+              <span class="kpi-sub">Suma de litros</span>
+            </div>
+
+            <!-- Costo por km -->
+            <div class="kpi-card">
+              <span class="kpi-label">Costo por kilómetro</span>
+              <span class="kpi-value" id="costo-km-valor">—</span>
+              <span class="kpi-sub">Total gastado / km recorridos</span>
+            </div>
+
+            <!-- Número de recargas -->
+            <div class="kpi-card">
+              <span class="kpi-label">Total de recargas</span>
+              <span class="kpi-value" id="num-recargas-valor">—</span>
+              <span class="kpi-sub">Veces que has cargado combustible</span>
+            </div>
+
+            <!-- Precio promedio -->
+            <div class="kpi-card">
+              <span class="kpi-label">Precio promedio por litro</span>
+              <span class="kpi-value" id="precio-promedio-valor">—</span>
+              <span class="kpi-sub">Promedio de todas las recargas</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- History Table -->
+        <section>
+          <h2 class="section-title">Historial de recargas</h2>
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Odómetro</th>
+                  <th>Litros</th>
+                  <th>Precio / L</th>
+                  <th>Total</th>
+                  <th>Gasolinera</th>
+                </tr>
+              </thead>
+              <tbody id="historial-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Supabase JS v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Config (credentials) -->
+    <script src="config.js"></script>
+
+    <!-- App -->
+    <script src="app.js"></script>
+  </body>
+</html>

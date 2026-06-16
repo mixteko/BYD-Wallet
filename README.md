@@ -2,6 +2,21 @@
 
 PWA mobile-first para BYD King con tema oscuro premium y enfoque Tesla/BYD.
 
+## Estructura del proyecto
+
+```text
+app/
+components/
+lib/
+public/
+styles/
+next.config.ts
+tsconfig.json
+tailwind.config.ts
+postcss.config.js
+package.json
+```
+
 ## MVP incluido
 
 - Dashboard principal
@@ -12,39 +27,14 @@ PWA mobile-first para BYD King con tema oscuro premium y enfoque Tesla/BYD.
 - Reportes mensuales
 - Estadísticas con gráficas interactivas
 
-## Métricas incluidas
-
-- Gasto diario
-- Gasto semanal
-- Gasto mensual
-- Gasto anual
-- Costo por km
-- km/L
-- km/kWh
-- Rendimiento promedio
-- Ahorro acumulado
-
-## Arquitectura preparada para
-
-- OCR de tickets
-- Integración OBD2
-- Múltiples vehículos
-
-## Stack
-
-- React 19
-- TypeScript
-- Vite
-- vite-plugin-pwa
-- Recharts
-- Lucide React
-
-## Desarrollo
+## Desarrollo local
 
 ```bash
 npm install
 npm run dev
 ```
+
+Abre `http://localhost:3000`
 
 ## Validación
 

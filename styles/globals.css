@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(45, 212, 191, 0.14), transparent 26%),
+    radial-gradient(circle at right, rgba(124, 58, 237, 0.16), transparent 28%),
+    #06080f;
+  color: #e5eef9;
+}
+
+@layer components {
+  .surface {
+    @apply rounded-[28px] border border-white/10 bg-surface shadow-premium backdrop-blur-[22px];
+  }
+
+  .metric-card {
+    @apply surface min-h-[126px] p-[18px];
+  }
+
+  .section-card {
+    @apply surface p-5;
+  }
+
+  .text-input,
+  .select-input {
+    @apply min-h-[52px] rounded-2xl border border-white/10 bg-muted px-3.5 text-[#e5eef9] outline-none;
+  }
+
+  .text-input:focus,
+  .select-input:focus {
+    @apply border-accent/70 ring-4 ring-accent/15;
+  }
+
+  .action-button,
+  .submit-button {
+    @apply min-h-[50px] rounded-[18px] bg-gradient-to-br from-accent to-accentStrong px-4 font-semibold text-[#eff6ff];
+  }
+
+  .action-button.ghost {
+    @apply border border-white/10 bg-muted text-[#e5eef9];
+  }
+}

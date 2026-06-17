@@ -14,7 +14,7 @@ Donde:
 - `odometroActual` = máximo valor de `odometro_km` entre todas las recargas (o `config.odometro_actual_km` si no hay recargas)
 - `odometroInicial` = mínimo valor de `odometro_km` entre todas las recargas (o 0 si no hay recargas)
 
-**Redondeo**: `Math.round()`
+**Redondeo**: `Math.round(valor * 100) / 100` (2 decimales)
 
 **Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`
 
@@ -23,7 +23,19 @@ Donde:
 - `odometroActual` (línea 322-324)
 - `odometroInicial` (línea 326-328)
 - `kmRecorridos` (línea 329)
-- `costoPorKm` (línea 330)
+- `costoPorKm` (línea 330-332)
+
+**Fórmula anterior (incorrecta)**:
+```
+costoPorKm = Math.round(totalGasolina / kmRecorridos)
+```
+`Math.round()` convertía el resultado a entero. Con datos reales (10669.45 / 19667 ≈ 0.54), redondeaba a **$1**.
+
+**Fórmula corregida**:
+```
+costoPorKm = Math.round((totalGasolina / kmRecorridos) * 100) / 100
+```
+Con datos reales: **$0.54/km**.
 
 ---
 
@@ -32,20 +44,33 @@ Donde:
 **Fórmula**:
 
 ```
-rendimientoKmL = 18.5  (valor fijo por defecto)
+rendimientoKmL = kmRecorridos / totalLitros
 ```
 
-Actualmente no se calcula dinámicamente de los datos. Siempre retorna `18.5` (el valor de `DEFAULT_SETTINGS.rendimientoKmL`).
+Donde:
+- `kmRecorridos` = `odometroActual - odometroInicial`
+- `totalLitros` = suma de `litros` de todas las recargas en Supabase
 
-**Condición**: Si `precioPromedioLitros > 0`, la fórmula intenta:
+**Redondeo**: `Math.round(valor * 10) / 10` (1 decimal)
 
+**Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`
+
+**Variables**:
+- `kmRecorridos` (línea 329)
+- `totalLitros` (línea 319)
+- `rendimientoKmL` (línea 370-372)
+
+**Fórmula anterior (incorrecta)**:
 ```
 Math.round((odometroActual > 0 ? 0 : 18.5) * 10) / 10
 ```
+Usaba `odometroActual` en lugar de `kmRecorridos` y `totalLitros`. Como `odometroActual > 0` siempre hay datos, retornaba **0.0 km/L** (bug).
 
-Pero como `odometroActual > 0` cuando hay datos, esto retorna `0`. El código actual tiene un bug: cuando hay recargas, el rendimiento se calcula como `0` en lugar de usar los valores reales.
-
-**Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`, líneas 370-372
+**Fórmula corregida**:
+```
+Math.round((kmRecorridos / totalLitros) * 10) / 10
+```
+Con datos reales: 19667 / 406.5 ≈ **48.4 km/L**.
 
 ---
 
@@ -134,13 +159,31 @@ retorna d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
 gastoAnual = Σ costo_total_mxn  (para recargas del mismo año que hoy)
 ```
 
-**Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`, línea 349
+Muestra solo las recargas del año calendario actual (2026). Excluye recargas de años anteriores.
+
+**Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`, línea 351
 
 **Función auxiliar**: `isThisYear(d, ref)` (líneas 262-263)
 
 ```
 retorna d.getFullYear() === ref.getFullYear()
 ```
+
+---
+
+## Gasto total
+
+**Fórmula**:
+
+```
+gastoTotal = Σ costo_total_mxn  (de todas las recargas)
+```
+
+Suma histórica de todas las recargas válidas, sin filtro de fecha. A diferencia de `gastoAnual` (solo año actual), este KPI incluye recargas de todos los años disponibles.
+
+**Archivo**: `app/page.tsx`, función `computeKpisFromRecargas()`, línea 370
+
+**Variable**: `totalGasolina` (línea 318), retornada como `gastoTotal`
 
 ---
 
@@ -260,7 +303,8 @@ Actualmente retorna `0` (hardcodeado). No hay lógica implementada.
 | `gastoHoy` | suma condicional por fecha | page.tsx:346 |
 | `gastoSemanal` | suma condicional por semana | page.tsx:347 |
 | `gastoMensual` | suma condicional por mes | page.tsx:348 |
-| `gastoAnual` | suma condicional por año | page.tsx:349 |
-| `rendimientoKmL` | fijo 18.5 (bug: 0 si hay datos) | page.tsx:370-372 |
+| `gastoAnual` | suma condicional por año calendario | page.tsx:351 |
+| `gastoTotal` | reduce (totalGasolina) | page.tsx:318, 370 |
+| `rendimientoKmL` | `kmRecorridos / totalLitros` | page.tsx:372-374 |
 | `rendimientoKmKwh` | fijo 6.2 | page.tsx:373 |
 | `ahorroAcumulado` | fijo 0 (no implementado) | page.tsx:374 |

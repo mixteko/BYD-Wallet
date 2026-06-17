@@ -327,7 +327,9 @@ function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRo
     ? Math.min(...recargas.map((r) => Number(r.odometro_km || 0)))
     : 0;
   const kmRecorridos = odometroActual - odometroInicial;
-  const costoPorKm = kmRecorridos > 0 ? Math.round(totalGasolina / kmRecorridos) : 0;
+  const costoPorKm = kmRecorridos > 0
+    ? Math.round((totalGasolina / kmRecorridos) * 100) / 100
+    : 0;
 
   const precioPromedioLitros = numRecargas > 0
     ? recargas.reduce((sum, r) => sum + Number(r.precio_litro_mxn || 0), 0) / numRecargas
@@ -366,9 +368,10 @@ function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRo
     gastoSemanal,
     gastoMensual,
     gastoAnual,
+    gastoTotal: totalGasolina,
     costoPorKm,
-    rendimientoKmL: precioPromedioLitros > 0
-      ? Math.round((odometroActual > 0 ? 0 : 18.5) * 10) / 10
+    rendimientoKmL: kmRecorridos > 0 && totalLitros > 0
+      ? Math.round((kmRecorridos / totalLitros) * 10) / 10
       : 18.5,
     rendimientoKmKwh: config?.bateria_kwh ? 6.2 : 6.2,
     ahorroAcumulado: 0,
@@ -1869,11 +1872,12 @@ export default function Home() {
         </header>
 
         {/* ═══ KPI ROW 1 ═══ */}
-        <section className="mb-4 grid grid-cols-2 gap-3 sm:mb-6 sm:grid-cols-4">
+        <section className="mb-4 grid grid-cols-2 gap-3 sm:mb-6 sm:grid-cols-5">
           <KpiCard label="Gasto hoy" value={formatCurrency(kpis.gastoHoy)} />
           <KpiCard label="Gasto semanal" value={formatCurrency(kpis.gastoSemanal)} />
           <KpiCard label="Gasto mensual" value={formatCurrency(kpis.gastoMensual)} />
           <KpiCard label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} />
+          <KpiCard label="Gasto total" value={formatCurrency(kpis.gastoTotal)} color="text-byd-400" />
         </section>
 
         {/* ═══ KPI ROW 2 ═══ */}

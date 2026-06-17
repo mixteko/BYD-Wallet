@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow, type MaintenanceExtraCostRow, type CargaElectricaRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.6.3";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2179,6 +2179,163 @@ function ComparativoGasolinaVsElectricidad() {
   );
 }
 
+function RendimientoCombinadoPanel({
+  gasolinaList,
+  periodosElectricos,
+  cargasList,
+  odometroActual,
+  compact = false,
+}: {
+  gasolinaList: GasolinaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
+  odometroActual: number;
+  compact?: boolean;
+}) {
+  const stats = useMemo(
+    () => computeRendimientoCombinado(gasolinaList, periodosElectricos, cargasList, odometroActual),
+    [gasolinaList, periodosElectricos, cargasList, odometroActual],
+  );
+
+  const fmtKmL = (v: number | null) => (v != null ? `${v} km/L` : null);
+  const fmtCostoKm = (v: number | null) => (v != null ? `$${v.toFixed(2)}/km` : null);
+
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+        Rendimiento combinado
+      </p>
+      <div className={`grid gap-2 ${compact ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"}`}>
+        <div className="rounded-lg border border-amber-500/10 bg-amber-500/[0.03] px-2.5 py-2">
+          <p className="text-[9px] text-white/30">Km/L gasolina</p>
+          <p className="text-sm font-semibold text-amber-400/90">
+            {!stats.hasGasolina
+              ? "Sin datos de gasolina"
+              : !stats.hasKmEntreRecargas
+                ? "Faltan registros para calcular"
+                : fmtKmL(stats.kmLGasolina) ?? "—"}
+          </p>
+          <p className="mt-0.5 text-[8px] text-white/20">Entre recargas consecutivas</p>
+        </div>
+        <div
+          className="rounded-lg border border-byd-500/15 bg-byd-500/[0.03] px-2.5 py-2"
+          title="Incluye kilómetros recorridos con apoyo eléctrico. No equivale al rendimiento puro del motor a gasolina."
+        >
+          <p className="text-[9px] text-white/30">Km/L combinado</p>
+          <p className="text-sm font-semibold text-byd-400">
+            {!stats.hasGasolina
+              ? "Sin datos de gasolina"
+              : stats.kmRecorridos <= 0 || stats.totalLitros <= 0
+                ? "Faltan registros para calcular"
+                : fmtKmL(stats.kmLCombinado) ?? "—"}
+          </p>
+          <p className="mt-0.5 text-[8px] text-white/20">Km totales ÷ litros gasolina</p>
+        </div>
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2">
+          <p className="text-[9px] text-white/30">Costo combinado por km</p>
+          <p className="text-sm font-semibold text-white/80">
+            {!stats.hasGasolina && !stats.hasElectricidad
+              ? "Faltan registros para calcular"
+              : stats.kmRecorridos <= 0
+                ? "Faltan registros para calcular"
+                : fmtCostoKm(stats.costoCombinadoPorKm) ?? "—"}
+          </p>
+          <p className="mt-0.5 text-[8px] text-white/20">(Gasolina + eléctrico BYD) ÷ km</p>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-2 sm:grid-cols-5">
+        {[
+          { label: "Gasto gasolina", val: stats.hasGasolina ? formatCurrency(stats.gastoGasolina) : "Sin datos de gasolina" },
+          {
+            label: "Gasto eléctrico BYD",
+            val: stats.hasElectricidad ? formatCurrency(stats.gastoElectricoByd) : "Sin datos eléctricos",
+          },
+          { label: "Total energía", val: formatCurrency(stats.totalEnergia) },
+          {
+            label: "Km recorridos",
+            val: stats.kmRecorridos > 0 ? `${stats.kmRecorridos.toLocaleString()} km` : "Faltan registros para calcular",
+          },
+          {
+            label: "Litros gasolina",
+            val: stats.hasGasolina ? `${stats.totalLitros.toFixed(1)} L` : "—",
+          },
+        ].map((row) => (
+          <div key={row.label}>
+            <p className="text-[8px] text-white/25">{row.label}</p>
+            <p className="text-[10px] font-medium text-white/55">{row.val}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GastoGasolinaVsElectricidadCombinado({
+  gasolinaList,
+  periodosElectricos,
+  cargasList,
+  odometroActual,
+}: {
+  gasolinaList: GasolinaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
+  odometroActual: number;
+}) {
+  const stats = useMemo(
+    () => computeRendimientoCombinado(gasolinaList, periodosElectricos, cargasList, odometroActual),
+    [gasolinaList, periodosElectricos, cargasList, odometroActual],
+  );
+
+  const data = useMemo(
+    () => [
+      { categoria: "Gasolina", monto: stats.gastoGasolina, fill: "#f59e0b" },
+      { categoria: "Eléctrico BYD", monto: stats.gastoElectricoByd, fill: "#34d399" },
+      { categoria: "Total energía", monto: stats.totalEnergia, fill: "#12b8a0" },
+    ],
+    [stats],
+  );
+
+  const sinDatos = !stats.hasGasolina && !stats.hasElectricidad;
+
+  return (
+    <ChartCard title="Gasolina vs Electricidad">
+      {sinDatos ? (
+        <p className="py-8 text-center text-xs text-white/30">Sin datos de gasolina ni electricidad para comparar</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={130}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+            <XAxis
+              type="number"
+              tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(0)}k`}
+            />
+            <YAxis
+              type="category"
+              dataKey="categoria"
+              tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 9 }}
+              axisLine={false}
+              tickLine={false}
+              width={72}
+            />
+            <Tooltip
+              contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
+              formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
+            />
+            <Bar dataKey="monto" radius={[0, 4, 4, 0]} barSize={18}>
+              {data.map((entry) => (
+                <Cell key={entry.categoria} fill={entry.fill} opacity={0.9} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
 // ── Confirm dialog ───────────────────────────────────────────────────────
 function ConfirmDialog({
   isOpen,
@@ -2840,6 +2997,82 @@ function getGastoElectricoBydAnual(periodos: PeriodoElectricoRow[], cargas: Carg
   ) / 100;
 }
 
+interface RendimientoCombinadoStats {
+  kmLGasolina: number | null;
+  kmLCombinado: number | null;
+  costoCombinadoPorKm: number | null;
+  gastoGasolina: number;
+  gastoElectricoByd: number;
+  totalEnergia: number;
+  kmRecorridos: number;
+  totalLitros: number;
+  hasGasolina: boolean;
+  hasElectricidad: boolean;
+  hasKmEntreRecargas: boolean;
+}
+
+function computeKmLGasolinaEntreRecargas(gasolinaList: GasolinaEntry[]): number | null {
+  const sorted = [...gasolinaList].sort((a, b) => dateSortValue(a.fecha) - dateSortValue(b.fecha));
+  let totalKm = 0;
+  let totalLitros = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const km = sorted[i].kilometraje - sorted[i - 1].kilometraje;
+    if (km > 0 && sorted[i].litros > 0) {
+      totalKm += km;
+      totalLitros += sorted[i].litros;
+    }
+  }
+  if (totalKm <= 0 || totalLitros <= 0) return null;
+  return Math.round((totalKm / totalLitros) * 10) / 10;
+}
+
+function computeRendimientoCombinado(
+  gasolinaList: GasolinaEntry[],
+  periodosElectricos: PeriodoElectricoRow[],
+  cargasList: CargaEntry[],
+  odometroActual: number,
+): RendimientoCombinadoStats {
+  const gastoGasolina = Math.round(gasolinaList.reduce((s, e) => s + e.costo, 0) * 100) / 100;
+  const totalLitros = Math.round(gasolinaList.reduce((s, e) => s + e.litros, 0) * 100) / 100;
+  const gastoElectricoByd = getTotalGastoElectricoByd(periodosElectricos, cargasList);
+  const totalEnergia = Math.round((gastoGasolina + gastoElectricoByd) * 100) / 100;
+
+  const odometros = gasolinaList.map((e) => e.kilometraje).filter((k) => k > 0);
+  const odometroInicial = odometros.length > 0 ? Math.min(...odometros) : 0;
+  const kmRecorridos = odometroActual > odometroInicial ? odometroActual - odometroInicial : 0;
+
+  const kmLGasolina = computeKmLGasolinaEntreRecargas(gasolinaList);
+  const kmLCombinado =
+    totalLitros > 0 && kmRecorridos > 0
+      ? Math.round((kmRecorridos / totalLitros) * 10) / 10
+      : null;
+  const costoCombinadoPorKm =
+    kmRecorridos > 0
+      ? Math.round((totalEnergia / kmRecorridos) * 100) / 100
+      : null;
+
+  const hasGasolina = gasolinaList.length > 0 && totalLitros > 0;
+  const hasElectricidad =
+    gastoElectricoByd > 0 ||
+    cargasList.some((c) => c.kwhCargados > 0) ||
+    periodosElectricos.some((p) => Number(p.costo_kwh_mxn) > 0);
+  const hasKmEntreRecargas = gasolinaList.length >= 2 && kmLGasolina != null;
+
+  return {
+    kmLGasolina,
+    kmLCombinado,
+    costoCombinadoPorKm,
+    gastoGasolina,
+    gastoElectricoByd,
+    totalEnergia,
+    kmRecorridos,
+    totalLitros,
+    hasGasolina,
+    hasElectricidad,
+    hasKmEntreRecargas,
+  };
+}
+
 function getDashboardEstadoMantenimiento(
   odometroActual: number,
   proximo: { km: number } | null,
@@ -3205,6 +3438,12 @@ function SeccionDashboard({
             cargasList={cargasList}
             mantenimientoRows={mantenimientoRows}
             otrosRows={otrosRows}
+          />
+          <RendimientoCombinadoPanel
+            gasolinaList={gasolinaList}
+            periodosElectricos={periodosElectricos}
+            cargasList={cargasList}
+            odometroActual={odometroActual}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <GastoDistribucionPie segments={segments} />
@@ -5941,11 +6180,25 @@ export default function Home() {
           {/* ── Reportes ── */}
           {section === "reportes" && (
             <div className="space-y-3">
+              <RendimientoCombinadoPanel
+                gasolinaList={gasolinaList}
+                periodosElectricos={periodosElectricos}
+                cargasList={cargasList}
+                odometroActual={kpis.odometroActual}
+              />
               <div className="grid gap-3 sm:grid-cols-2">
+                <GastoGasolinaVsElectricidadCombinado
+                  gasolinaList={gasolinaList}
+                  periodosElectricos={periodosElectricos}
+                  cargasList={cargasList}
+                  odometroActual={kpis.odometroActual}
+                />
                 <GastoPorDia />
-                <GastoPorMes />
               </div>
-              <RendimientoHistorico />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <GastoPorMes />
+                <RendimientoHistorico />
+              </div>
               <ComparativoGasolinaVsElectricidad />
             </div>
           )}

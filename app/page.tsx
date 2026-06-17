@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.1";
+const APP_VERSION = "0.5.3.2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -32,6 +32,12 @@ interface CargaEntry {
   kmEvObtenidos: number;
 }
 
+interface ChecklistItemState {
+  id: string;
+  realizado: boolean;
+  nota?: string;
+}
+
 interface MantenimientoEntry {
   id: string;
   fecha: string;
@@ -46,6 +52,8 @@ interface MantenimientoEntry {
   costoReal?: number;
   agencia?: string;
   notas?: string;
+  // v0.5.3.2 checklist
+  checklist?: ChecklistItemState[];
 }
 
 interface VehicleSettings {
@@ -2012,6 +2020,41 @@ function getMantenimientoStatus(kmRestantes: number): {
   return   { color: "text-green-400", bg: "bg-green-500/15", dot: "bg-green-400", label: "Al día" };
 }
 
+// ── Checklist de servicio BYD King ───────────────────────────────────────
+const CHECKLIST_ITEMS: { id: string; label: string; importante: boolean }[] = [
+  { id: "aceite-motor",          label: "Aceite de motor",                  importante: true  },
+  { id: "filtro-aceite",         label: "Filtro de aceite",                 importante: false },
+  { id: "filtro-aire",           label: "Filtro de aire",                   importante: false },
+  { id: "filtro-cabina",         label: "Filtro de cabina",                 importante: false },
+  { id: "liquido-frenos",        label: "Líquido de frenos",                importante: true  },
+  { id: "refrigerante-motor",    label: "Refrigerante motor",               importante: false },
+  { id: "refrigerante-hibrido",  label: "Refrigerante sistema híbrido",     importante: true  },
+  { id: "frenos",                label: "Frenos",                           importante: true  },
+  { id: "llantas",               label: "Llantas / rotación",               importante: false },
+  { id: "alineacion",            label: "Alineación / balanceo",            importante: false },
+  { id: "bateria-12v",           label: "Batería 12V",                      importante: true  },
+  { id: "sistema-hibrido",       label: "Sistema híbrido / alto voltaje",   importante: true  },
+  { id: "escaneo",               label: "Escaneo diagnóstico",              importante: false },
+  { id: "software",              label: "Actualización de software",        importante: false },
+];
+
+function calcChecklistPct(checklist: ChecklistItemState[] | undefined): number {
+  if (!checklist || checklist.length === 0) return 0;
+  const done = checklist.filter((c) => c.realizado).length;
+  return Math.round((done / CHECKLIST_ITEMS.length) * 100);
+}
+
+function getImportantesPendientes(checklist: ChecklistItemState[] | undefined): string[] {
+  if (!checklist) return [];
+  return CHECKLIST_ITEMS
+    .filter((item) => item.importante)
+    .filter((item) => {
+      const state = checklist.find((c) => c.id === item.id);
+      return !state || !state.realizado;
+    })
+    .map((item) => item.label);
+}
+
 // ── RegistrarServicioForm ──────────────────────────────────────────────────
 function RegistrarServicioForm({
   initialKm,
@@ -2031,6 +2074,29 @@ function RegistrarServicioForm({
   const [agencia, setAgencia] = useState(initialData?.agencia ?? "");
   const [notas, setNotas] = useState(initialData?.notas ?? "");
   const [error, setError] = useState("");
+  const [expandNotas, setExpandNotas] = useState<string | null>(null);
+
+  const [checklist, setChecklist] = useState<ChecklistItemState[]>(() =>
+    CHECKLIST_ITEMS.map((item) => ({
+      id: item.id,
+      realizado: initialData?.checklist?.find((c) => c.id === item.id)?.realizado ?? false,
+      nota: initialData?.checklist?.find((c) => c.id === item.id)?.nota ?? "",
+    }))
+  );
+
+  function toggleItem(id: string) {
+    setChecklist((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, realizado: !c.realizado } : c))
+    );
+  }
+
+  function setItemNota(id: string, nota: string) {
+    setChecklist((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, nota } : c))
+    );
+  }
+
+  const donePct = Math.round((checklist.filter((c) => c.realizado).length / CHECKLIST_ITEMS.length) * 100);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2054,12 +2120,14 @@ function RegistrarServicioForm({
       costoReal: costo,
       agencia: agencia.trim() || undefined,
       notas: notas.trim() || undefined,
+      checklist: checklist.map((c) => ({ ...c, nota: c.nota?.trim() || undefined })),
     };
     onSave(entry);
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Scheduled info */}
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-lg bg-white/[0.03] px-3 py-2">
           <p className="text-[10px] text-white/35">Servicio programado</p>
@@ -2070,11 +2138,75 @@ function RegistrarServicioForm({
           <p className="font-medium text-white/70">{formatCurrency(sched.costo)}</p>
         </div>
       </div>
+
+      {/* Basic fields */}
       <InputField label="Fecha realizada" type="date" value={fecha} onChange={setFecha} required />
       <InputField label="Odómetro realizado (km)" type="number" value={odometro} onChange={setOdometro} required />
       <InputField label="Costo real ($)" type="number" step="0.01" min="0" value={costoReal} onChange={setCostoReal} required />
       <InputField label="Agencia / Taller" type="text" value={agencia} onChange={setAgencia} />
-      <InputField label="Notas" type="text" value={notas} onChange={setNotas} />
+      <InputField label="Notas generales" type="text" value={notas} onChange={setNotas} />
+
+      {/* Checklist */}
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium text-white/60">Checklist de servicio</p>
+          <span className="text-[11px] text-white/35">{donePct}% completado</span>
+        </div>
+        {/* Progress bar */}
+        <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className="h-full rounded-full bg-byd-400 transition-all duration-300"
+            style={{ width: `${donePct}%` }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          {CHECKLIST_ITEMS.map((item) => {
+            const state = checklist.find((c) => c.id === item.id)!;
+            const showNota = expandNotas === item.id;
+            return (
+              <div key={item.id} className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleItem(item.id)}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[11px] transition-colors ${
+                      state.realizado
+                        ? "border-byd-500/50 bg-byd-500/20 text-byd-400"
+                        : "border-white/10 bg-white/[0.03] text-white/20"
+                    }`}
+                  >
+                    {state.realizado ? "✓" : ""}
+                  </button>
+                  <span className={`flex-1 text-xs ${state.realizado ? "text-white/70" : "text-white/40"}`}>
+                    {item.label}
+                    {item.importante && (
+                      <span className="ml-1.5 text-[9px] font-medium text-amber-400/70">★</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setExpandNotas(showNota ? null : item.id)}
+                    className="text-[10px] text-white/25 hover:text-white/50"
+                  >
+                    {showNota ? "▲ nota" : "▼ nota"}
+                  </button>
+                </div>
+                {showNota && (
+                  <input
+                    type="text"
+                    value={state.nota ?? ""}
+                    onChange={(e) => setItemNota(item.id, e.target.value)}
+                    placeholder="Nota opcional…"
+                    className="mt-1.5 w-full rounded border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none placeholder:text-white/20 focus:border-byd-500/40"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-[10px] text-white/20">★ = punto importante</p>
+      </div>
+
       {error && <p className="text-xs text-red-400">{error}</p>}
       <button
         type="submit"
@@ -2100,6 +2232,7 @@ function SeccionMantenimiento({
   onEdit: (entry: MantenimientoEntry) => void;
   onDelete: (entry: MantenimientoEntry) => void;
 }) {
+  const [viewChecklistId, setViewChecklistId] = useState<string | null>(null);
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
   const anterior = proximo
     ? (BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null)
@@ -2251,16 +2384,36 @@ function SeccionMantenimiento({
               const real = entry.costoReal ?? entry.costo;
               const est = entry.costoEstimado ?? entry.costo;
               const diff = real - est;
+              const pct = calcChecklistPct(entry.checklist);
+              const importantesPendientes = getImportantesPendientes(entry.checklist);
+              const showChecklist = viewChecklistId === entry.id;
               return (
                 <div key={entry.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-white/80">{entry.servicio}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-white/80">{entry.servicio}</p>
+                        {entry.checklist && (
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            pct === 100 ? "bg-green-500/15 text-green-400" :
+                            pct >= 50 ? "bg-amber-500/15 text-amber-400" :
+                            "bg-red-500/15 text-red-400"
+                          }`}>
+                            {pct}% checklist
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/35">
                         <span>{formatDate(entry.fecha)}</span>
                         <span>{entry.km.toLocaleString()} km</span>
                         {entry.agencia && <span>🏪 {entry.agencia}</span>}
                       </div>
+                      {/* Important items alert */}
+                      {importantesPendientes.length > 0 && (
+                        <p className="mt-1 text-[10px] text-amber-400/80">
+                          ⚠️ Pendientes importantes: {importantesPendientes.join(", ")}
+                        </p>
+                      )}
                       <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px]">
                         <div>
                           <p className="text-white/25">Estimado</p>
@@ -2279,6 +2432,39 @@ function SeccionMantenimiento({
                       </div>
                       {entry.notas && (
                         <p className="mt-1 text-[10px] text-white/25 italic">{entry.notas}</p>
+                      )}
+                      {/* Expandable checklist */}
+                      {entry.checklist && (
+                        <button
+                          type="button"
+                          onClick={() => setViewChecklistId(showChecklist ? null : entry.id)}
+                          className="mt-1.5 text-[10px] text-byd-400/70 hover:text-byd-400"
+                        >
+                          {showChecklist ? "▲ Ocultar checklist" : "▼ Ver checklist"}
+                        </button>
+                      )}
+                      {showChecklist && entry.checklist && (
+                        <div className="mt-2 space-y-1 rounded-lg border border-white/5 bg-white/[0.02] p-2">
+                          {CHECKLIST_ITEMS.map((item) => {
+                            const state = entry.checklist!.find((c) => c.id === item.id);
+                            return (
+                              <div key={item.id} className="flex items-start gap-2 text-[11px]">
+                                <span className={`mt-0.5 shrink-0 ${state?.realizado ? "text-byd-400" : "text-white/20"}`}>
+                                  {state?.realizado ? "✓" : "○"}
+                                </span>
+                                <div className="min-w-0">
+                                  <span className={state?.realizado ? "text-white/60" : "text-white/30"}>
+                                    {item.label}
+                                    {item.importante && <span className="ml-1 text-[9px] text-amber-400/60">★</span>}
+                                  </span>
+                                  {state?.nota && (
+                                    <p className="text-[10px] text-white/25 italic">{state.nota}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">

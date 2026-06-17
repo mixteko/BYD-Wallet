@@ -410,11 +410,27 @@ async function deleteCargaElectrica(id: number): Promise<{ error: string | null 
     return { error: "Cliente Supabase no disponible. Verifica .env.local" };
   }
 
-  const { error } = await sb.from("cargas_electricas").delete().eq("id", id);
+  const { data, error } = await sb
+    .from("cargas_electricas")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
   if (error) {
-    console.error("[BYD Wallet] Error al eliminar carga eléctrica:", { id, message: error.message });
-    return { error: error.message };
+    const isRls = error.code === "42501" || error.message.toLowerCase().includes("row-level security");
+    const userMessage = isRls
+      ? "Supabase bloqueó el DELETE por RLS en cargas_electricas. Ejecuta docs/migrations/008_cargas_electricas_rls_write.sql."
+      : error.message;
+    console.error("[BYD Wallet] Error al eliminar carga eléctrica:", { id, message: error.message, code: error.code });
+    return { error: userMessage };
   }
+
+  if (!data || data.length === 0) {
+    const message = `No se eliminó la carga (id: ${id}). Verifica que exista y que RLS permita DELETE.`;
+    console.error("[BYD Wallet]", message);
+    return { error: message };
+  }
+
   console.log("[BYD Wallet] Carga eléctrica eliminada (id:", id, ")");
   return { error: null };
 }
@@ -2170,37 +2186,48 @@ function ConfirmDialog({
   onCancel,
   title,
   message,
+  confirming = false,
+  error = null,
 }: {
   isOpen: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   title: string;
   message: string;
+  confirming?: boolean;
+  error?: string | null;
 }) {
   if (!isOpen) return null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && !confirming) onCancel(); }}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!confirming) onCancel(); }} />
       <div className="relative w-full max-w-sm rounded-xl border border-white/10 bg-[#0d1117] p-3 shadow-2xl sm:p-4">
         <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-white/80">{title}</h3>
         <p className="mb-4 text-xs text-white/50">{message}</p>
+        {error && (
+          <p className="mb-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {error}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10"
+            disabled={confirming}
+            className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10 disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             type="button"
-            onClick={onConfirm}
-            className="flex-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-400"
+            onClick={() => { void onConfirm(); }}
+            disabled={confirming}
+            className="flex-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-400 disabled:opacity-50"
           >
-            Eliminar
+            {confirming ? "Eliminando..." : "Eliminar"}
           </button>
         </div>
       </div>
@@ -2329,10 +2356,17 @@ function getBydKwhForPeriod(r: PeriodoElectricoRow, cargas: CargaEntry[]) {
     return { value: manualVal, isManual: true };
   }
   const calculated = cargas
-    .filter((c) => c.fecha >= r.fecha_inicio && c.fecha <= r.fecha_fin)
+    .filter((c) => cargaEnPeriodoElectrico(c, r))
     .reduce((sum, c) => sum + c.kwhCargados, 0);
   const rounded = Math.round(calculated * 10) / 10;
   return { value: rounded, isManual: false };
+}
+
+function cargaEnPeriodoElectrico(c: CargaEntry, p: PeriodoElectricoRow): boolean {
+  const d = normalizeDate(c.fecha);
+  if (!d) return false;
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return iso >= p.fecha_inicio && iso <= p.fecha_fin;
 }
 
 // ── Mantenimiento BYD King ────────────────────────────────────────────────
@@ -2772,9 +2806,9 @@ function costoBydFromPeriodo(p: PeriodoElectricoRow, cargas: CargaEntry[] = []):
   return Math.round(bydInfo.value * rate * 100) / 100;
 }
 
-/** Centro de Energía configurado → gasto BYD desde recibos CFE; si no, suma directa de Cargas EV. */
+/** Centro de Energía con tarifa CFE válida → gasto BYD desde recibos; si no, suma directa de Cargas EV. */
 function hasCentroEnergiaConfigurado(periodos: PeriodoElectricoRow[]): boolean {
-  return periodos.length > 0;
+  return periodos.some((p) => Number(p.costo_kwh_mxn) > 0);
 }
 
 function getTotalGastoElectricoByd(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
@@ -5145,6 +5179,9 @@ export default function Home() {
   const [deletingOtroCosto, setDeletingOtroCosto] = useState<OtroCostoEntry | null>(null);
   const [cargaSaveError, setCargaSaveError] = useState<string | null>(null);
   const [savingCarga, setSavingCarga] = useState(false);
+  const [deletingCargaBusy, setDeletingCargaBusy] = useState(false);
+  const [cargaDeleteError, setCargaDeleteError] = useState<string | null>(null);
+  const [cargaActionError, setCargaActionError] = useState<string | null>(null);
   const [cargaEnDetalle, setCargaEnDetalle] = useState<CargaEntry | null>(null);
   const [editingCarga, setEditingCarga] = useState<CargaEntry | null>(null);
   const [deletingCarga, setDeletingCarga] = useState<CargaEntry | null>(null);
@@ -5362,6 +5399,20 @@ export default function Home() {
 
   const gastoBydMensualGlobal = centroEnergiaResumen?.costoByd ?? null;
   const tarifaKwhGlobal = centroEnergiaResumen?.costoKwh ?? null;
+  const gastoElectricoAcumuladoGlobal = useMemo(
+    () => getTotalGastoElectricoByd(periodosElectricos, cargasList),
+    [periodosElectricos, cargasList],
+  );
+  const usaCentroEnergiaParaDashboard = hasCentroEnergiaConfigurado(periodosElectricos);
+
+  const cargasModuloResumen = useMemo(() => {
+    const dbCargas = cargasList.filter((e) => isCargaSupabaseDb(e.id));
+    const totalKwh = Math.round(dbCargas.reduce((s, c) => s + c.kwhCargados, 0) * 10) / 10;
+    const totalGasto = Math.round(dbCargas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
+    const totalKm = dbCargas.reduce((s, c) => s + c.kmEvObtenidos, 0);
+    const costoPromKwh = totalKwh > 0 ? Math.round(totalGasto / totalKwh) : 0;
+    return { totalKwh, totalGasto, totalKm, costoPromKwh, count: dbCargas.length };
+  }, [cargasList]);
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
@@ -5397,33 +5448,43 @@ export default function Home() {
     const refreshed = await fetchCargasElectricasFromSupabase();
     setCargasElectricasDb(refreshed);
     setCargaSaveError(null);
+    setCargaActionError(null);
     setFormModal(null);
     setEditingCarga(null);
+    setKpiVersion((v) => v + 1);
   }, []);
 
   const handleDeleteCarga = useCallback(async function (entry: CargaEntry) {
+    setCargaDeleteError(null);
+    setDeletingCargaBusy(true);
+
     if (!isCargaSupabaseDb(entry.id)) {
       const list = loadData<CargaEntry[]>(KEYS.cargas, []).filter((e) => e.id !== entry.id);
       saveData(KEYS.cargas, list);
+      setDeletingCargaBusy(false);
       setDeletingCarga(null);
+      setCargaEnDetalle((current) => (current?.id === entry.id ? null : current));
       setKpiVersion((v) => v + 1);
       return;
     }
 
-    setSavingCarga(true);
     const result = await deleteCargaElectrica(Number(entry.id));
-    setSavingCarga(false);
+    setDeletingCargaBusy(false);
 
     if (result.error) {
-      setCargaSaveError(result.error);
-      setDeletingCarga(null);
-      return;
+      setCargaDeleteError(result.error);
+      setCargaActionError(result.error);
+      throw new Error(result.error);
     }
 
     const refreshed = await fetchCargasElectricasFromSupabase();
     setCargasElectricasDb(refreshed);
     setDeletingCarga(null);
+    setCargaDeleteError(null);
+    setCargaActionError(null);
     setCargaEnDetalle((current) => (current?.id === entry.id ? null : current));
+    setEditingCarga((current) => (current?.id === entry.id ? null : current));
+    setKpiVersion((v) => v + 1);
   }, []);
 
   const handleUpdateGasolina = useCallback(function (updated: GasolinaEntry) {
@@ -5629,7 +5690,20 @@ export default function Home() {
           <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
           <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
           <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
-          <KpiChip label="Costo eléctrico" value={gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : "Sin dato"} sub={tarifaKwhGlobal != null ? `$${tarifaKwhGlobal.toFixed(4)}/kWh` : "Gasto BYD · último recibo"} color="text-green-400/80" />
+          <KpiChip
+            label="Costo eléctrico"
+            value={
+              usaCentroEnergiaParaDashboard
+                ? (gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : formatCurrency(gastoElectricoAcumuladoGlobal))
+                : formatCurrency(gastoElectricoAcumuladoGlobal)
+            }
+            sub={
+              usaCentroEnergiaParaDashboard
+                ? (tarifaKwhGlobal != null ? `Centro Energía · $${tarifaKwhGlobal.toFixed(4)}/kWh` : "Centro Energía · acumulado BYD")
+                : "Suma de cargas EV registradas"
+            }
+            color="text-green-400/80"
+          />
         </section>
 
         {/* Mobile-only nav tabs */}
@@ -5737,9 +5811,33 @@ export default function Home() {
                 count={cargasList.length}
                 onAdd={() => {
                   setCargaSaveError(null);
+                  setCargaActionError(null);
                   setFormModal("carga");
                 }}
               />
+              {cargaActionError && (
+                <p className="mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                  {cargaActionError}
+                </p>
+              )}
+              <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  { label: "Total kWh", val: `${cargasModuloResumen.totalKwh.toFixed(1)} kWh` },
+                  { label: "Gasto cargas", val: formatCurrency(cargasModuloResumen.totalGasto) },
+                  { label: "Km EV total", val: `${cargasModuloResumen.totalKm.toLocaleString()} km` },
+                  { label: "Promedio/kWh", val: cargasModuloResumen.costoPromKwh > 0 ? formatCurrency(cargasModuloResumen.costoPromKwh) : "—" },
+                ].map((k) => (
+                  <div key={k.label} className="rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2">
+                    <p className="text-[9px] text-white/30">{k.label}</p>
+                    <p className="text-xs font-semibold text-byd-400">{k.val}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mb-2 text-[9px] text-white/25">
+                {usaCentroEnergiaParaDashboard
+                  ? "Dashboard: gasto eléctrico desde Centro de Energía (recibos CFE). Totales arriba = solo cargas registradas."
+                  : "Dashboard: gasto eléctrico = suma de cargas EV (sin Centro de Energía)."}
+              </p>
               <div className="space-y-1">
                 {cargasList.map((entry) => (
                   <div
@@ -5769,31 +5867,32 @@ export default function Home() {
                           className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
                           title="Ver detalle"
                         >
-                          📋
+                          👁
                         </button>
-                        {isCargaSupabaseDb(entry.id) && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCargaSaveError(null);
-                                setEditingCarga(entry);
-                              }}
-                              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
-                              title="Editar"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeletingCarga(entry)}
-                              className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                              title="Eliminar"
-                            >
-                              🗑️
-                            </button>
-                          </>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCargaSaveError(null);
+                            setCargaActionError(null);
+                            setEditingCarga(entry);
+                          }}
+                          className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Editar"
+                          disabled={!isCargaSupabaseDb(entry.id)}
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCargaDeleteError(null);
+                            setDeletingCarga(entry);
+                          }}
+                          className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          title="Eliminar"
+                        >
+                          🗑
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -5988,8 +6087,21 @@ export default function Home() {
         isOpen={!!deletingCarga}
         title="Eliminar carga EV"
         message={`¿Eliminar la carga del ${deletingCarga ? formatDateShort(deletingCarga.fecha) : ""} (${deletingCarga?.kwhCargados.toFixed(1)} kWh)? Esta acción no se puede deshacer.`}
-        onConfirm={() => deletingCarga && handleDeleteCarga(deletingCarga)}
-        onCancel={() => setDeletingCarga(null)}
+        confirming={deletingCargaBusy}
+        error={cargaDeleteError}
+        onConfirm={async () => {
+          if (!deletingCarga) return;
+          try {
+            await handleDeleteCarga(deletingCarga);
+          } catch {
+            // error shown in dialog via cargaDeleteError
+          }
+        }}
+        onCancel={() => {
+          if (deletingCargaBusy) return;
+          setCargaDeleteError(null);
+          setDeletingCarga(null);
+        }}
       />
 
       <Modal isOpen={formModal === "mantenimiento"} onClose={() => setFormModal(null)} title="Agregar mantenimiento">
@@ -6038,7 +6150,7 @@ export default function Home() {
         isOpen={deletingMantenimiento !== null}
         title="Eliminar servicio"
         message={`¿Eliminar "${deletingMantenimiento?.servicio}"? Esta acción no se puede deshacer.`}
-        onConfirm={() => deletingMantenimiento && handleDeleteMantenimiento(deletingMantenimiento.id)}
+        onConfirm={() => { if (deletingMantenimiento) handleDeleteMantenimiento(deletingMantenimiento.id); }}
         onCancel={() => setDeletingMantenimiento(null)}
       />
 
@@ -6067,7 +6179,7 @@ export default function Home() {
         isOpen={deletingOtroCosto !== null}
         title="Eliminar registro"
         message={`¿Eliminar "${deletingOtroCosto?.concepto}"? Esta acción no se puede deshacer.`}
-        onConfirm={() => deletingOtroCosto && handleDeleteOtroCosto(deletingOtroCosto.id)}
+        onConfirm={() => { if (deletingOtroCosto) handleDeleteOtroCosto(deletingOtroCosto.id); }}
         onCancel={() => setDeletingOtroCosto(null)}
       />
 

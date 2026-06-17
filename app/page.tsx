@@ -248,7 +248,7 @@ function isSameDay(d1: Date, d2: Date): boolean {
 
 function isThisWeek(d: Date, ref: Date): boolean {
   const startOfWeek = new Date(ref);
-  startOfWeek.setDate(ref.getDate() - ref.getDay());
+  startOfWeek.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));
   startOfWeek.setHours(0, 0, 0, 0);
   const endOfWeek = new Date(startOfWeek);
   endOfWeek.setDate(startOfWeek.getDate() + 7);

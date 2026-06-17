@@ -2099,6 +2099,52 @@ function getMantenimientoStatus(kmRestantes: number, mesesRestantes?: number): {
   };
 }
 
+/** Estado por kilometraje — sin vencimiento por tiempo. */
+function getMantenimientoStatusKm(kmRestantes: number) {
+  return getMantenimientoStatus(kmRestantes, undefined);
+}
+
+type ServicioKmEstado = "realizado" | "vencido" | "urgente" | "proximo" | "al-dia" | "pendiente";
+
+function getServicioKmEstado(
+  servicioKm: number,
+  odometroActual: number,
+  proximoKm: number | null,
+  realizado: boolean,
+): ServicioKmEstado {
+  if (realizado) return "realizado";
+  if (odometroActual >= servicioKm) return "vencido";
+  if (proximoKm === servicioKm) {
+    const restantes = servicioKm - odometroActual;
+    if (restantes <= 500) return "urgente";
+    if (restantes <= 2000) return "proximo";
+    return "al-dia";
+  }
+  return "pendiente";
+}
+
+function servicioKmEstadoMeta(estado: ServicioKmEstado): {
+  label: string;
+  dot: string;
+  text: string;
+  badgeBg: string;
+} {
+  switch (estado) {
+    case "realizado":
+      return { label: "Realizado", dot: "bg-green-400", text: "text-green-400", badgeBg: "bg-green-500/15 text-green-400" };
+    case "vencido":
+      return { label: "Vencido sin registro", dot: "bg-red-400", text: "text-red-400", badgeBg: "bg-red-500/15 text-red-400" };
+    case "urgente":
+      return { label: "Urgente", dot: "bg-red-400", text: "text-red-400", badgeBg: "bg-red-500/15 text-red-400" };
+    case "proximo":
+      return { label: "Próximo", dot: "bg-amber-400", text: "text-amber-400", badgeBg: "bg-amber-500/15 text-amber-400" };
+    case "al-dia":
+      return { label: "Al día", dot: "bg-green-400", text: "text-green-400", badgeBg: "bg-green-500/15 text-green-400" };
+    default:
+      return { label: "Pendiente", dot: "bg-white/20", text: "text-white/25", badgeBg: "bg-white/[0.04] text-white/30" };
+  }
+}
+
 // ── Checklist de servicio BYD King ───────────────────────────────────────
 const CHECKLIST_ITEMS: { id: string; label: string; importante: boolean }[] = [
   { id: "aceite-motor",          label: "Aceite de motor",                  importante: true  },
@@ -3087,21 +3133,11 @@ function SeccionMantenimiento({
   const kmFromLast = proximo && anterior ? odometroActual - anterior.km : odometroActual;
   const progressPct = Math.min(100, Math.round((kmFromLast / rangeKm) * 100));
 
-  // Time-based alert: find the last completed service and compute months elapsed
-  const lastCompletado = [...mantenimientoList]
-    .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
-    .find((e) => e.estado === "completado");
-  const SERVICE_INTERVAL_MONTHS = 12;
-  const mesesRestantes: number | undefined = (() => {
-    if (!lastCompletado?.fecha) return undefined;
-    const last = new Date(lastCompletado.fecha);
-    const now = new Date();
-    const monthsElapsed =
-      (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth());
-    return SERVICE_INTERVAL_MONTHS - monthsElapsed;
-  })();
-
-  const status = getMantenimientoStatus(kmRestantes, mesesRestantes);
+  const status = getMantenimientoStatusKm(kmRestantes);
+  const statusMessage =
+    status.label === "Al día" && kmRestantes > 0
+      ? `Al día — aún faltan ${kmRestantes.toLocaleString()} km para el próximo servicio.`
+      : status.message;
 
   // KPI calculations — oficial services only
   const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
@@ -3121,7 +3157,7 @@ function SeccionMantenimiento({
   const chartData = [...mantenimientoList]
     .sort((a, b) => (a.fecha && b.fecha ? a.fecha.localeCompare(b.fecha) : a.km - b.km))
     .map((e) => ({
-      label: e.kmProgramado ? `${(e.kmProgramado / 1000).toFixed(0)}k km` : formatDateShort(e.fecha),
+      label: e.kmProgramado ? `${(e.kmProgramado / 1000).toFixed(0)}k` : formatDateShort(e.fecha),
       real: e.costoReal ?? e.costo,
       estimado: e.costoEstimado ?? e.costo,
     }));
@@ -3138,8 +3174,8 @@ function SeccionMantenimiento({
 
   // ── Salud del vehículo ─────────────────────────────────────────────────
   const serviciosCompletados = mantenimientoList.filter((e) => e.estado === "completado").length;
-  const serviciosProximos   = status.label === "Próximo" ? 1 : 0;
-  const serviciosVencidos   = (kmRestantes <= 0 || (mesesRestantes !== undefined && mesesRestantes <= 0)) ? 1 : 0;
+  const serviciosProximos   = status.label === "Próximo" || status.label === "Urgente" ? 1 : 0;
+  const serviciosVencidos   = kmRestantes <= 0 ? 1 : 0;
 
   // Annual avg: span from first to last record date
   const sortedAscDates = [...mantenimientoList]
@@ -3162,10 +3198,6 @@ function SeccionMantenimiento({
   if (kmRestantes <= 0)               healthScore -= 35;
   else if (kmRestantes <= 500)        healthScore -= 20;
   else if (kmRestantes <= 2000)       healthScore -= 10;
-  if (mesesRestantes !== undefined) {
-    if (mesesRestantes <= 0)          healthScore -= 20;
-    else if (mesesRestantes <= 2)     healthScore -= 5;
-  }
   if (mantenimientoList.length === 0) healthScore -= 15;
   healthScore = Math.max(0, Math.min(100, healthScore));
 
@@ -3446,32 +3478,32 @@ function SeccionMantenimiento({
               {/* 6 KPI cards */}
               <div className="grid flex-1 grid-cols-2 gap-1.5 sm:grid-cols-3">
                 <div className="rounded-lg border border-green-500/15 bg-green-500/[0.04] p-2 text-center">
-                  <p className="text-base">✅</p>
+                  <p className="text-[11px] leading-none">✅</p>
                   <p className="mt-0.5 text-xs font-bold text-green-400">{serviciosCompletados}</p>
                   <p className="text-[9px] text-white/35">Al día</p>
                 </div>
                 <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-2 text-center">
-                  <p className="text-base">⚠️</p>
+                  <p className="text-[11px] leading-none">⚠️</p>
                   <p className="mt-0.5 text-xs font-bold text-amber-400">{serviciosProximos}</p>
                   <p className="text-[9px] text-white/35">Próximos</p>
                 </div>
                 <div className="rounded-lg border border-red-500/15 bg-red-500/[0.04] p-2 text-center">
-                  <p className="text-base">❌</p>
+                  <p className="text-[11px] leading-none">❌</p>
                   <p className="mt-0.5 text-xs font-bold text-red-400">{serviciosVencidos}</p>
                   <p className="text-[9px] text-white/35">Vencidos</p>
                 </div>
                 <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
-                  <p className="text-base">💰</p>
+                  <p className="text-[11px] leading-none">💰</p>
                   <p className="mt-0.5 text-[10px] font-bold text-white/75">{formatCurrency(totalGeneral)}</p>
                   <p className="text-[9px] text-white/35">Gasto total</p>
                 </div>
                 <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
-                  <p className="text-base">🔧</p>
+                  <p className="text-[11px] leading-none">🔧</p>
                   <p className="mt-0.5 text-xs font-bold text-white/75">{mantenimientoList.length}</p>
                   <p className="text-[9px] text-white/35">Servicios</p>
                 </div>
                 <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
-                  <p className="text-base">📈</p>
+                  <p className="text-[11px] leading-none">📈</p>
                   <p className="mt-0.5 text-[10px] font-bold text-white/75">{formatCurrency(promedioAnual)}</p>
                   <p className="text-[9px] text-white/35">Prom. anual</p>
                 </div>
@@ -3481,88 +3513,110 @@ function SeccionMantenimiento({
             {/* Timeline */}
             <div className="mt-3">
               <p className="mb-2 text-[10px] font-medium text-white/35">Línea de tiempo BYD King</p>
-              <div className="space-y-0">
+              <div className="hidden sm:grid sm:grid-cols-[5.5rem_3.5rem_minmax(0,1fr)_5.5rem] sm:gap-x-3 sm:px-1 sm:pb-1">
+                <span className="text-[9px] uppercase tracking-wide text-white/20">Km</span>
+                <span className="text-[9px] uppercase tracking-wide text-white/20">Meses</span>
+                <span className="text-[9px] uppercase tracking-wide text-white/20">Estado</span>
+                <span className="text-right text-[9px] uppercase tracking-wide text-white/20">Acción</span>
+              </div>
+              <div className="space-y-2">
                 {BYD_KING_SERVICIOS.map((s, idx) => {
                   const realizado = mantenimientoList.find(
                     (e) => e.kmProgramado === s.km || e.km === s.km
                   );
-                  const isProximo = proximo?.km === s.km;
-                  const isPast = odometroActual >= s.km;
+                  const servicioEstado = getServicioKmEstado(
+                    s.km,
+                    odometroActual,
+                    proximo?.km ?? null,
+                    !!realizado,
+                  );
+                  const meta = servicioKmEstadoMeta(servicioEstado);
                   const isLast = idx === BYD_KING_SERVICIOS.length - 1;
-
-                  const dotColor = realizado
-                    ? "#4ade80"
-                    : isProximo
-                    ? healthColor
-                    : isPast
-                    ? "#f87171"
+                  const dotColor =
+                    servicioEstado === "realizado" ? "#4ade80"
+                    : servicioEstado === "vencido" || servicioEstado === "urgente" ? "#f87171"
+                    : servicioEstado === "proximo" ? "#fbbf24"
+                    : servicioEstado === "al-dia" ? "#4ade80"
                     : "rgba(255,255,255,0.15)";
 
                   return (
-                    <div key={s.km} className="flex gap-3">
-                      {/* Vertical line + dot */}
-                      <div className="flex flex-col items-center">
+                    <div key={s.km} className="flex gap-3 sm:grid sm:grid-cols-[5.5rem_3.5rem_minmax(0,1fr)_5.5rem] sm:items-start sm:gap-x-3">
+                      {/* Vertical line + dot (mobile) */}
+                      <div className="flex flex-col items-center sm:hidden">
                         <div
-                          className="h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[9px] font-bold"
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[9px] font-bold"
                           style={{ borderColor: dotColor, backgroundColor: realizado ? dotColor + "20" : "transparent" }}
                         >
                           {realizado ? <span style={{ color: dotColor }}>✓</span>
-                           : isPast && !isProximo ? <span className="text-red-400">!</span>
-                           : isProximo ? <span style={{ color: dotColor }}>◎</span>
+                           : servicioEstado === "vencido" || servicioEstado === "urgente" ? <span className="text-red-400">!</span>
+                           : servicioEstado === "proximo" || servicioEstado === "al-dia" ? <span style={{ color: dotColor }}>◎</span>
                            : <span className="text-white/20">·</span>}
                         </div>
                         {!isLast && (
-                          <div className="w-0.5 flex-1 my-1" style={{ background: realizado ? "#4ade8030" : "rgba(255,255,255,0.06)" }} />
+                          <div className="my-1 w-0.5 flex-1" style={{ background: realizado ? "#4ade8030" : "rgba(255,255,255,0.06)" }} />
                         )}
                       </div>
 
-                      {/* Content */}
-                      <div className={`flex-1 pb-3 ${isLast ? "" : ""}`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`text-[11px] font-semibold ${
-                            realizado ? "text-white/70" :
-                            isProximo ? "text-white/85" :
-                            isPast ? "text-red-400/70" : "text-white/25"
-                          }`}>
-                            {s.km.toLocaleString()} km
+                      {/* Km */}
+                      <div className="min-w-0 sm:pt-0.5">
+                        <span className={`text-[11px] font-semibold ${
+                          realizado ? "text-white/70" : meta.text
+                        }`}>
+                          {s.km.toLocaleString()} km
+                        </span>
+                      </div>
+
+                      {/* Meses */}
+                      <div className="hidden sm:block sm:pt-0.5">
+                        <span className="text-[10px] text-white/30">{s.meses} m</span>
+                      </div>
+
+                      {/* Estado + detalle */}
+                      <div className={`min-w-0 ${isLast ? "" : "pb-1 sm:pb-0"}`}>
+                        <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
+                          <span className="text-[9px] text-white/25 sm:hidden">{s.meses} meses</span>
+                          <span className={`inline-flex w-fit rounded-full px-1.5 py-0.5 text-[9px] font-medium ${meta.badgeBg}`}>
+                            {meta.label}
                           </span>
-                          <span className="text-[9px] text-white/25">{s.meses} meses</span>
-                          {realizado && (
-                            <span className="rounded-full bg-green-500/15 px-1.5 py-0.5 text-[9px] font-medium text-green-400">Realizado</span>
-                          )}
-                          {isProximo && !realizado && (
-                            <span className="rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ background: healthColor + "20", color: healthColor }}>
-                              {status.label}
-                            </span>
-                          )}
-                          {isPast && !realizado && !isProximo && (
-                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-red-400">Vencido sin registro</span>
-                          )}
-                          {!isPast && !isProximo && (
-                            <span className="rounded-full bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-white/20">Pendiente</span>
+                          {realizado ? (
+                            <div className="flex flex-wrap gap-x-3 text-[10px] text-white/30">
+                              {realizado.fecha && <span>📅 {formatDate(realizado.fecha)}</span>}
+                              <span>💰 {formatCurrency(realizado.costoReal ?? realizado.costo)}</span>
+                              {realizado.agencia && <span>🏪 {realizado.agencia}</span>}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-white/20">Est. {formatCurrency(s.costo)}</span>
                           )}
                         </div>
-                        {realizado ? (
-                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-white/30">
-                            {realizado.fecha && <span>📅 {formatDate(realizado.fecha)}</span>}
-                            <span>💰 {formatCurrency(realizado.costoReal ?? realizado.costo)}</span>
-                            {realizado.agencia && <span>🏪 {realizado.agencia}</span>}
-                          </div>
+                      </div>
+
+                      {/* Acción */}
+                      <div className="hidden shrink-0 justify-end sm:flex sm:pt-0.5">
+                        {!realizado && proximo?.km === s.km ? (
+                          <button
+                            type="button"
+                            onClick={() => onRegistrar(s.km)}
+                            className="rounded border border-byd-500/30 bg-byd-500/10 px-2 py-0.5 text-[9px] font-medium text-byd-400 hover:bg-byd-500/20"
+                          >
+                            Registrar
+                          </button>
                         ) : (
-                          <div className="mt-0.5 flex items-center gap-3 text-[10px] text-white/20">
-                            <span>Est. {formatCurrency(s.costo)}</span>
-                            {isProximo && (
-                              <button
-                                type="button"
-                                onClick={() => onRegistrar(s.km)}
-                                className="rounded border border-byd-500/30 bg-byd-500/10 px-1.5 py-0.5 text-[9px] font-medium text-byd-400 hover:bg-byd-500/20"
-                              >
-                                + Registrar
-                              </button>
-                            )}
-                          </div>
+                          <span className="text-[9px] text-white/15">—</span>
                         )}
                       </div>
+
+                      {/* Acción mobile */}
+                      {!realizado && proximo?.km === s.km && (
+                        <div className="col-span-full pl-8 sm:hidden">
+                          <button
+                            type="button"
+                            onClick={() => onRegistrar(s.km)}
+                            className="rounded border border-byd-500/30 bg-byd-500/10 px-2 py-0.5 text-[9px] font-medium text-byd-400 hover:bg-byd-500/20"
+                          >
+                            + Registrar
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3614,24 +3668,44 @@ function SeccionMantenimiento({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Left — Evolución servicios oficiales */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/50">📊 Servicios oficiales</h3>
+          <div className="mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wide text-white/50">📊 Servicios oficiales</h3>
+            <p className="mt-0.5 text-[9px] text-white/25">Costo estimado vs costo real por servicio (MXN)</p>
+          </div>
           {chartData.length === 0 ? (
             <p className="py-8 text-center text-xs text-white/30">Aún no hay mantenimientos registrados.</p>
+          ) : chartData.length === 1 ? (
+            <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-4 text-center">
+              <p className="text-[11px] text-white/45">Aún hay pocos servicios registrados para comparar.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                <div className="rounded-lg bg-white/[0.03] p-2">
+                  <p className="text-white/30">Estimado ({chartData[0].label})</p>
+                  <p className="mt-0.5 font-semibold text-white/55">{formatCurrency(chartData[0].estimado)}</p>
+                </div>
+                <div className="rounded-lg bg-byd-500/10 p-2">
+                  <p className="text-white/30">Real ({chartData[0].label})</p>
+                  <p className="mt-0.5 font-semibold text-byd-400">{formatCurrency(chartData[0].real)}</p>
+                </div>
+              </div>
+            </div>
           ) : (
-            <ResponsiveContainer width="100%" height={130}>
-              <BarChart data={chartData} barGap={4} margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} width={36} />
-                <Tooltip
-                  contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 11, color: "rgba(255,255,255,0.8)" }}
-                  formatter={(value: unknown, name: unknown) => [`$${Number(value).toLocaleString("es-MX")}`, name === "real" ? "Real" : "Estimado"]}
-                  labelStyle={{ color: "rgba(255,255,255,0.4)" }}
-                />
-                <Bar dataKey="estimado" fill="rgba(255,255,255,0.07)" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="real" fill="rgba(100,220,180,0.55)" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={chartData} barGap={4} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={(v: number) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }} axisLine={false} tickLine={false} width={40} />
+                  <Tooltip
+                    contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 11, color: "rgba(255,255,255,0.8)" }}
+                    formatter={(value: unknown, name: unknown) => [formatCurrency(Number(value)), name === "real" ? "Costo real" : "Costo estimado"]}
+                    labelStyle={{ color: "rgba(255,255,255,0.4)" }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 4 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.45)" }}>{value === "real" ? "Real" : "Estimado"}</span>} />
+                  <Bar dataKey="estimado" name="estimado" fill="rgba(255,255,255,0.12)" radius={[3, 3, 0, 0]} maxBarSize={36} />
+                  <Bar dataKey="real" name="real" fill="rgba(100,220,180,0.65)" radius={[3, 3, 0, 0]} maxBarSize={36} />
+                </BarChart>
+              </ResponsiveContainer>
+            </>
           )}
         </div>
 
@@ -3685,18 +3759,15 @@ function SeccionMantenimiento({
 
           {/* Alert banner */}
           <div className={`mb-4 flex items-center gap-3 rounded-xl px-4 py-3 ${status.bg} border ${status.borderColor}`}>
-            <span className="text-xl leading-none">{status.icon}</span>
+            <span className="text-lg leading-none">{status.icon}</span>
             <div className="flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className={`text-sm font-semibold ${status.color}`}>{status.label}</span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.color} border ${status.borderColor}`}>
                   {kmRestantes <= 0 ? "km vencido" : `${kmRestantes.toLocaleString()} km restantes`}
-                  {mesesRestantes !== undefined && (
-                    <> · {mesesRestantes <= 0 ? "tiempo vencido" : `${mesesRestantes} mes${mesesRestantes !== 1 ? "es" : ""}`}</>
-                  )}
                 </span>
               </div>
-              <p className="mt-0.5 text-[11px] text-white/40">{status.message}</p>
+              <p className="mt-0.5 text-[11px] text-white/40">{statusMessage}</p>
             </div>
           </div>
 
@@ -3712,21 +3783,13 @@ function SeccionMantenimiento({
             </div>
             <div>
               <p className="text-[11px] text-white/35">Km restantes</p>
-              <p className={`font-semibold ${kmRestantes <= 0 ? "text-red-400" : "text-white/80"}`}>
+              <p className={`font-semibold ${kmRestantes <= 0 ? "text-red-400" : status.color}`}>
                 {kmRestantes <= 0 ? "Vencido" : `${kmRestantes.toLocaleString()} km`}
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-white/35">
-                {mesesRestantes !== undefined ? "Meses restantes" : "Costo estimado"}
-              </p>
-              {mesesRestantes !== undefined ? (
-                <p className={`font-semibold ${mesesRestantes <= 0 ? "text-red-400" : mesesRestantes <= 2 ? "text-amber-400" : "text-white/80"}`}>
-                  {mesesRestantes <= 0 ? "Vencido" : `${mesesRestantes} mes${mesesRestantes !== 1 ? "es" : ""}`}
-                </p>
-              ) : (
-                <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
-              )}
+              <p className="text-[11px] text-white/35">Costo estimado</p>
+              <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
             </div>
           </div>
 
@@ -3749,12 +3812,6 @@ function SeccionMantenimiento({
             </div>
           </div>
 
-          {/* Costo estimado (shown when mesesRestantes replaces the 4th stat) */}
-          {mesesRestantes !== undefined && (
-            <p className="mt-3 text-right text-[10px] text-white/25">
-              Costo estimado: <span className="font-medium text-white/45">{formatCurrency(proximo.costo)}</span>
-            </p>
-          )}
         </div>
       ) : (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 text-center">
@@ -3987,21 +4044,31 @@ function SeccionMantenimiento({
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">📅 Calendario oficial BYD King</h3>
         <div className="space-y-1.5">
           {BYD_KING_SERVICIOS.map((s) => {
-            const done = odometroActual >= s.km;
+            const realizado = mantenimientoList.find(
+              (e) => e.kmProgramado === s.km || e.km === s.km
+            );
+            const servicioEstado = getServicioKmEstado(
+              s.km,
+              odometroActual,
+              proximo?.km ?? null,
+              !!realizado,
+            );
+            const meta = servicioKmEstadoMeta(servicioEstado);
             const isCurrent = proximo?.km === s.km;
             return (
               <div
                 key={s.km}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                  isCurrent ? "border border-white/10 bg-white/[0.05]" : done ? "opacity-40" : "opacity-70"
+                  isCurrent ? "border border-white/10 bg-white/[0.05]" : "opacity-80"
                 }`}
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${done ? "bg-green-400" : isCurrent ? status.dot : "bg-white/20"}`} />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
                 <span className="w-28 shrink-0 font-medium text-white/70">{s.km.toLocaleString()} km</span>
                 <span className="text-[11px] text-white/30">{s.meses} meses</span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${meta.badgeBg}`}>{meta.label}</span>
                 <span className="ml-auto text-[11px] font-medium text-white/60">{formatCurrency(s.costo)}</span>
-                {done && <span className="text-[10px] text-green-400/70">✓</span>}
-                {isCurrent && (
+                {realizado && <span className="text-[10px] text-green-400/70">✓</span>}
+                {isCurrent && !realizado && (
                   <button
                     type="button"
                     onClick={() => onRegistrar(s.km)}

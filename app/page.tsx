@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.5";
+const APP_VERSION = "0.5.2.6";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1799,6 +1799,7 @@ function ReciboForm({
   const [numRecibo, setNumRecibo] = useState(initialData?.numero_recibo || "");
   const [proveedor, setProveedor] = useState(initialData?.proveedor || "CFE");
   const [notas, setNotas] = useState(initialData?.notas || "");
+  const [kwhByd, setKwhByd] = useState(initialData?.kwh_byd_periodo ? String(initialData.kwh_byd_periodo) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1808,6 +1809,7 @@ function ReciboForm({
 
     const kwhNum = parseFloat(kwh);
     const totalNum = parseFloat(total);
+    const kwhBydNum = kwhByd ? parseFloat(kwhByd) : 0;
 
     if (!fechaInicio || !fechaFin) {
       setError("Ambas fechas son requeridas.");
@@ -1825,6 +1827,10 @@ function ReciboForm({
       setError("El total del recibo no puede ser negativo.");
       return;
     }
+    if (kwhByd !== "" && (kwhBydNum < 0 || kwhBydNum > kwhNum)) {
+      setError("El consumo BYD debe estar entre 0 y el total del consumo.");
+      return;
+    }
 
     setSaving(true);
     const success = await onSave({
@@ -1832,6 +1838,7 @@ function ReciboForm({
       fecha_fin: fechaFin,
       kwh_bimestre: kwhNum,
       costo_total_mxn: totalNum,
+      kwh_byd_periodo: kwhByd !== "" ? kwhBydNum : null,
       proveedor: proveedor || "CFE",
       tarifa: tarifa || null,
       numero_recibo: numRecibo || null,
@@ -1856,6 +1863,7 @@ function ReciboForm({
       </div>
       <InputField label="Consumo (kWh)" type="number" step="0.1" min="0.1" value={kwh} onChange={setKwh} required />
       <InputField label="Total del recibo ($)" type="number" step="0.01" min="0" value={total} onChange={setTotal} required />
+      <InputField label="Consumo BYD (kWh)" type="number" step="0.1" min="0" value={kwhByd} onChange={setKwhByd} placeholder="Opcional, dejar vacío si no se sabe" />
       <div className="grid grid-cols-2 gap-3">
         <InputField label="Tarifa" type="text" value={tarifa} onChange={setTarifa} placeholder="Ej. 1C, DAC" />
         <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} required />
@@ -1898,12 +1906,14 @@ function SeccionEnergia({
 }) {
   const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
 
-  // Compute kWh BYD in the current period
-  const kwhBydPeriodo = ultimoRecibo
-    ? cargas
-        .filter((c) => c.fecha >= ultimoRecibo.fecha_inicio && c.fecha <= ultimoRecibo.fecha_fin)
-        .reduce((sum, c) => sum + c.kwhCargados, 0)
-    : 0;
+  // Compute kWh BYD — use stored value from DB, fall back to cargas-based calc
+  const kwhBydPeriodo = ultimoRecibo?.kwh_byd_periodo != null
+    ? Number(ultimoRecibo.kwh_byd_periodo)
+    : ultimoRecibo
+      ? cargas
+          .filter((c) => c.fecha >= ultimoRecibo.fecha_inicio && c.fecha <= ultimoRecibo.fecha_fin)
+          .reduce((sum, c) => sum + c.kwhCargados, 0)
+      : 0;
   const kwhBydRounded = Math.round(kwhBydPeriodo * 10) / 10;
   const kwhBimestre = ultimoRecibo ? Number(ultimoRecibo.kwh_bimestre) : 0;
   const costoKwh = ultimoRecibo?.costo_kwh_mxn ? Number(ultimoRecibo.costo_kwh_mxn) : 0;
@@ -1958,6 +1968,12 @@ function SeccionEnergia({
             <div className="flex justify-between">
               <span className="text-white/40">Consumo</span>
               <span className="font-medium text-white/80">{detalle.kwh_bimestre} kWh</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Consumo BYD</span>
+              <span className="font-medium text-white/80">
+                {detalle.kwh_byd_periodo != null ? `${detalle.kwh_byd_periodo} kWh` : "—"}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-white/40">Costo total</span>

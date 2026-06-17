@@ -39,6 +39,7 @@ export interface PeriodoElectricoRow {
   kwh_bimestre: number;
   costo_total_mxn: number;
   costo_kwh_mxn: number | null;
+  kwh_byd_periodo: number | null;
   proveedor: string | null;
   tarifa: string | null;
   numero_recibo: string | null;

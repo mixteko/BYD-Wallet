@@ -19,6 +19,7 @@ import {
   calculateAverageKwhRate,
   calculateTotalKwhByd,
   calculateEfficiencyAndCosts,
+  calculateIndiceEficienciaHibrida,
   buildMonthlyExpenseBreakdown12,
   buildDailyExpenseLast7Days,
   buildFuelEfficiencyHistory,
@@ -45,7 +46,7 @@ import {
 } from "@/lib/calculations";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.6.4";
+const APP_VERSION = "0.6.5";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2625,7 +2626,7 @@ function RendimientoHistorico({
             strokeWidth={1.5}
             dot={{ r: 2, fill: "#f59e0b" }}
             connectNulls={false}
-            name="Km/L gasolina"
+            name="Km/L Gasolina"
           />
           {hasElectricidad && (
             <Line
@@ -2636,7 +2637,7 @@ function RendimientoHistorico({
               strokeWidth={1.5}
               dot={{ r: 2, fill: "#0ea5e9" }}
               connectNulls={false}
-              name="Km/kWh eléctrico"
+              name="Km/kWh Eléctrico"
             />
           )}
         </LineChart>
@@ -2810,15 +2811,21 @@ function EficienciaCostosPanel({
   cargasList,
   odometroActual,
   showComparador = true,
+  mostrarIeh = false,
 }: {
   gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
   cargasList: CargaEntry[];
   odometroActual: number;
   showComparador?: boolean;
+  mostrarIeh?: boolean;
 }) {
   const stats = useMemo(
     () => calculateEfficiencyAndCosts(gasolinaList, periodosElectricos, cargasList, odometroActual),
+    [gasolinaList, periodosElectricos, cargasList, odometroActual],
+  );
+  const ieh = useMemo(
+    () => calculateIndiceEficienciaHibrida(gasolinaList, periodosElectricos, cargasList, odometroActual),
     [gasolinaList, periodosElectricos, cargasList, odometroActual],
   );
 
@@ -2886,13 +2893,19 @@ function EficienciaCostosPanel({
           />
           <KpiConAyuda
             icon="📈"
-            label="Eficiencia global"
+            label={mostrarIeh ? "Índice de Eficiencia Híbrida" : "Eficiencia global"}
             value={
-              !stats.hasGasolina || stats.eficienciaGlobal == null
-                ? "Faltan registros para calcular"
-                : `${stats.eficienciaGlobal} km/L`
+              mostrarIeh
+                ? (ieh.score != null ? `${ieh.score} · ${ieh.label}` : "Faltan registros para calcular")
+                : (!stats.hasGasolina || stats.eficienciaGlobal == null
+                  ? "Faltan registros para calcular"
+                  : `${stats.eficienciaGlobal} km/L`)
             }
-            helpText="Km totales recorridos ÷ litros totales de gasolina. Incluye apoyo eléctrico."
+            helpText={
+              mostrarIeh
+                ? "Este índice resume el rendimiento del vehículo considerando el uso de gasolina, electricidad y el costo por kilómetro. Un valor más alto indica un mejor aprovechamiento del sistema híbrido."
+                : "Km totales recorridos ÷ litros totales de gasolina. Incluye apoyo eléctrico."
+            }
           />
         </div>
 
@@ -3791,6 +3804,7 @@ function SeccionDashboard({
             cargasList={cargasList}
             odometroActual={odometroActual}
             showComparador={false}
+            mostrarIeh
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <GastoDistribucionPie segments={segments} />

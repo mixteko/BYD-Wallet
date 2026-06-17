@@ -643,6 +643,163 @@ export function calculateFuelKmPerLiter(fuelRows: FuelRow[]): number | null {
   return Math.round((totalKm / totalLitros) * 100) / 100;
 }
 
+export function calculateEvKmPerKwh(charges: ElectricChargeRow[]): number | null {
+  const valid = charges.filter((c) => c.kwhCargados > 0 && (c.kmEvObtenidos ?? 0) > 0);
+  if (valid.length === 0) return null;
+  const totalKm = valid.reduce((s, c) => s + (c.kmEvObtenidos ?? 0), 0);
+  const totalKwh = valid.reduce((s, c) => s + c.kwhCargados, 0);
+  if (totalKwh <= 0) return null;
+  return roundMoney(totalKm / totalKwh);
+}
+
+/** % de km recorridos atribuidos a modo EV (km EV ÷ km totales). */
+export function calculatePctKmEv(
+  kmRecorridos: number,
+  charges: ElectricChargeRow[],
+): number | null {
+  if (kmRecorridos <= 0) return null;
+  const kmEv = charges.reduce((s, c) => s + Math.max(0, c.kmEvObtenidos ?? 0), 0);
+  if (kmEv <= 0) return 0;
+  return Math.min(100, roundMoney((kmEv / kmRecorridos) * 100));
+}
+
+function buildFuelEnergyCostPerKmHistory(fuelRows: FuelRow[]): number[] {
+  const sorted = [...fuelRows].sort((a, b) => {
+    const da = normalizeDate(a.fecha)?.getTime() ?? 0;
+    const db = normalizeDate(b.fecha)?.getTime() ?? 0;
+    if (da !== db) return da - db;
+    return a.kilometraje - b.kilometraje;
+  });
+  const costs: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const km = sorted[i].kilometraje - sorted[i - 1].kilometraje;
+    if (km > 0 && sorted[i].costo >= 0) {
+      costs.push(roundMoney(sorted[i].costo / km));
+    }
+  }
+  return costs;
+}
+
+function scoreInRangeHigherBetter(value: number, samples: number[]): number {
+  const valid = samples.filter((v) => v > 0);
+  if (value <= 0 || valid.length === 0) return 0;
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  if (max <= min) return 100;
+  return Math.round(Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)));
+}
+
+function scoreInRangeLowerBetter(value: number, samples: number[]): number {
+  const valid = samples.filter((v) => v > 0);
+  if (value <= 0 || valid.length === 0) return 0;
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  if (max <= min) return 100;
+  return Math.round(Math.min(100, Math.max(0, ((max - value) / (max - min)) * 100)));
+}
+
+export function interpretIndiceEficienciaHibrida(score: number): string {
+  if (score >= 95) return "Excelente";
+  if (score >= 85) return "Muy eficiente";
+  if (score >= 70) return "Eficiencia buena";
+  if (score >= 50) return "Puede mejorar";
+  return "Uso poco eficiente";
+}
+
+export type IndiceEficienciaHibridaResult = {
+  score: number | null;
+  label: string | null;
+  kmPerLiter: number | null;
+  kmPerKwh: number | null;
+  pctKmEv: number | null;
+  costoPorKm: number | null;
+  costoPor100Km: number | null;
+  components: {
+    fuelScore: number;
+    evScore: number | null;
+    evUsageScore: number;
+    costScore: number;
+  } | null;
+};
+
+/**
+ * IEH (0–100): resume el uso híbrido con métricas reales del vehículo.
+ * Sin conversiones litros↔kWh; referencias solo del historial del usuario.
+ */
+export function calculateIndiceEficienciaHibrida(
+  fuelRows: FuelRow[],
+  electricPeriods: PeriodoElectricoRow[],
+  electricCharges: ElectricChargeRow[],
+  odometerCurrent: number,
+): IndiceEficienciaHibridaResult {
+  const stats = calculateEfficiencyAndCosts(
+    fuelRows,
+    electricPeriods,
+    electricCharges,
+    odometerCurrent,
+  );
+  const kmPerLiter = calculateFuelKmPerLiter(fuelRows);
+  const kmPerKwh = calculateEvKmPerKwh(electricCharges);
+  const pctKmEv = calculatePctKmEv(stats.kmRecorridos, electricCharges);
+  const costoPorKm = stats.costoPromedioPorKm;
+  const costoPor100Km = stats.costoPor100Km;
+
+  const empty: IndiceEficienciaHibridaResult = {
+    score: null,
+    label: null,
+    kmPerLiter,
+    kmPerKwh,
+    pctKmEv,
+    costoPorKm,
+    costoPor100Km,
+    components: null,
+  };
+
+  if (!stats.hasGasolina || !stats.hasKmSuficientes || kmPerLiter == null || costoPorKm == null) {
+    return empty;
+  }
+
+  const fuelHistory = buildFuelEfficiencyHistory(fuelRows).map((p) => p.kmL);
+  const evHistory = buildEvEfficiencyHistory(electricCharges).map((p) => p.kmKwh);
+  const costHistory = buildFuelEnergyCostPerKmHistory(fuelRows);
+  const costSamples = [...costHistory, costoPorKm].filter((v) => v > 0);
+
+  const fuelScore = scoreInRangeHigherBetter(
+    kmPerLiter,
+    fuelHistory.length > 0 ? fuelHistory : [kmPerLiter],
+  );
+  const evScore =
+    kmPerKwh != null && evHistory.length > 0
+      ? scoreInRangeHigherBetter(kmPerKwh, evHistory)
+      : null;
+  const evUsageScore = pctKmEv ?? 0;
+  const costScore =
+    costSamples.length > 0 ? scoreInRangeLowerBetter(costoPorKm, costSamples) : 0;
+
+  const score =
+    evScore != null
+      ? Math.round(0.25 * fuelScore + 0.25 * evScore + 0.20 * evUsageScore + 0.30 * costScore)
+      : Math.round(0.40 * fuelScore + 0.60 * costScore);
+
+  const clamped = Math.min(100, Math.max(0, score));
+
+  return {
+    score: clamped,
+    label: interpretIndiceEficienciaHibrida(clamped),
+    kmPerLiter,
+    kmPerKwh,
+    pctKmEv,
+    costoPorKm,
+    costoPor100Km,
+    components: {
+      fuelScore,
+      evScore,
+      evUsageScore,
+      costScore,
+    },
+  };
+}
+
 export function calculateAverageKwhRate(
   totalGasto: number,
   totalKwh: number,

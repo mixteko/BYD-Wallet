@@ -1,4 +1,4 @@
-# BYD Wallet — Fórmulas oficiales de cálculo (v0.6.4)
+# BYD Wallet — Fórmulas oficiales de cálculo (v0.6.5)
 
 Motor centralizado en `lib/calculations.ts`.  
 Dashboard, Reportes y módulos **deben** usar estas funciones; no duplicar fórmulas en componentes.
@@ -125,8 +125,49 @@ Función: `calculateCostPer100Km()`
 ```
 Kilómetros recorridos ÷ Litros totales de gasolina
 ```
-Incluye apoyo del sistema híbrido.  
+Incluye apoyo del sistema híbrido. Visible en **Reportes** (panel Eficiencia y Costos).  
 Función: `calculateGlobalEfficiency()`
+
+### Índice de Eficiencia Híbrida (IEH)
+Calificación **0–100** que resume el aprovechamiento del sistema híbrido usando **solo métricas reales** del vehículo. **No convierte litros a kWh ni usa equivalencias energéticas.**
+
+Variables de entrada:
+| Variable | Origen |
+|---|---|
+| Km/L gasolina | `calculateFuelKmPerLiter()` |
+| Km/kWh eléctrico | `calculateEvKmPerKwh()` — km EV ÷ kWh cargados |
+| % km en modo EV | `calculatePctKmEv()` — Σ km EV ÷ km recorridos |
+| Costo por km (energía) | `calculateEfficiencyAndCosts().costoPromedioPorKm` |
+| Costo por 100 km | `calculateCostPer100Km()` |
+
+Sub-puntajes (0–100), normalizados contra el **historial del propio usuario** (sin constantes fijas):
+- **Rendimiento gasolina:** km/L actual vs historial km/L por recarga (`buildFuelEfficiencyHistory`)
+- **Rendimiento eléctrico:** km/kWh actual vs historial por carga (`buildEvEfficiencyHistory`)
+- **Uso EV:** % km en modo EV (0–100 directo)
+- **Costo energético:** costo/km actual vs historial de costo/km por tramo de gasolina (menor = mejor)
+
+Fórmula compuesta:
+```
+Con datos EV:
+  IEH = 25% rendimiento gasolina + 25% rendimiento eléctrico + 20% uso EV + 30% costo energético
+
+Sin datos EV suficientes:
+  IEH = 40% rendimiento gasolina + 60% costo energético
+```
+
+Interpretación:
+| Rango | Etiqueta |
+|---|---|
+| 95–100 | Excelente |
+| 85–94 | Muy eficiente |
+| 70–84 | Eficiencia buena |
+| 50–69 | Puede mejorar |
+| &lt;50 | Uso poco eficiente |
+
+Funciones: `calculateIndiceEficienciaHibrida()`, `interpretIndiceEficienciaHibrida()`  
+Visible en **Dashboard** (sustituye Eficiencia global en el panel Eficiencia y Costos).
+
+Tooltip: *"Este índice resume el rendimiento del vehículo considerando el uso de gasolina, electricidad y el costo por kilómetro. Un valor más alto indica un mejor aprovechamiento del sistema híbrido."*
 
 ### Km/L gasolina (entre recargas)
 ```
@@ -151,6 +192,8 @@ Función: `calculateAverageKwhRate()`
 | Evolución 12 meses / comparativo | `buildMonthlyExpenseBreakdown12()` |
 | Gasto por día (7 días) | `buildDailyExpenseLast7Days()` |
 | Eficiencia y Costos (panel) | `calculateEfficiencyAndCosts()` |
+| Rendimiento histórico (Reportes) | `buildFuelEfficiencyHistory()` + `buildEvEfficiencyHistory()` — solo Km/L Gasolina y Km/kWh Eléctrico |
+| IEH (Dashboard) | `calculateIndiceEficienciaHibrida()` |
 
 ---
 

@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.2";
+const APP_VERSION = "0.5.2.3";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -54,7 +54,7 @@ interface VehicleSettings {
 
 type Section = "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes" | "energia";
 
-type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | null;
+type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | "recibo" | null;
 
 type HistoryFilter = "hoy" | "semana" | "mes" | "ano";
 
@@ -324,6 +324,17 @@ async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRo
   }
 
   return periodos;
+}
+
+async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "created_at">): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb) return false;
+  const { error } = await sb.from("periodos_electricos").insert(row as never);
+  if (error) {
+    console.error("[BYD Wallet] Error al insertar periodo eléctrico:", error.message);
+    return false;
+  }
+  return true;
 }
 
 // ── KPI computation from Supabase data ───────────────────────────────────────
@@ -1690,13 +1701,107 @@ function ComparativoGasolinaVsElectricidad() {
   );
 }
 
+// ── Recibo CFE form ──────────────────────────────────────────────────────
+function ReciboForm({
+  onSave,
+  onClose,
+}: {
+  onSave: (data: Omit<PeriodoElectricoRow, "id" | "created_at">) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const [fechaInicio, setFechaInicio] = useState("");
+  const [fechaFin, setFechaFin] = useState("");
+  const [kwh, setKwh] = useState("");
+  const [total, setTotal] = useState("");
+  const [tarifa, setTarifa] = useState("");
+  const [numRecibo, setNumRecibo] = useState("");
+  const [proveedor, setProveedor] = useState("CFE");
+  const [notas, setNotas] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const kwhNum = parseFloat(kwh);
+    const totalNum = parseFloat(total);
+
+    if (!fechaInicio || !fechaFin) {
+      setError("Ambas fechas son requeridas.");
+      return;
+    }
+    if (fechaFin < fechaInicio) {
+      setError("La fecha fin debe ser mayor o igual a la fecha inicio.");
+      return;
+    }
+    if (!kwh || kwhNum <= 0) {
+      setError("El consumo debe ser mayor a 0 kWh.");
+      return;
+    }
+    if (total === "" || totalNum < 0) {
+      setError("El total del recibo no puede ser negativo.");
+      return;
+    }
+
+    setSaving(true);
+    const success = await onSave({
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      kwh_bimestre: kwhNum,
+      costo_total_mxn: totalNum,
+      costo_kwh_mxn: kwhNum > 0 ? totalNum / kwhNum : null,
+      proveedor: proveedor || "CFE",
+      tarifa: tarifa || null,
+      numero_recibo: numRecibo || null,
+      notas: notas || null,
+    });
+    setSaving(false);
+    if (!success) {
+      setError("Error al guardar el recibo. Revisa la consola para más detalles.");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Fecha inicio" type="date" value={fechaInicio} onChange={setFechaInicio} required />
+        <InputField label="Fecha fin" type="date" value={fechaFin} onChange={setFechaFin} required />
+      </div>
+      <InputField label="Consumo (kWh)" type="number" step="0.1" min="0.1" value={kwh} onChange={setKwh} required />
+      <InputField label="Total del recibo ($)" type="number" step="0.01" min="0" value={total} onChange={setTotal} required />
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Tarifa" type="text" value={tarifa} onChange={setTarifa} placeholder="Ej. 1C, DAC" />
+        <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} required />
+      </div>
+      <InputField label="Número de recibo" type="text" value={numRecibo} onChange={setNumRecibo} placeholder="Opcional" />
+      <InputField label="Notas" type="text" value={notas} onChange={setNotas} placeholder="Opcional" />
+      <div className="flex gap-2 pt-2">
+        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+          Cancelar
+        </button>
+        <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
+          {saving ? "Guardando..." : "Guardar recibo"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Centro de Energía component ──────────────────────────────────────────
 function SeccionEnergia({
   periodos,
   cargas,
+  onNewRecibo,
 }: {
   periodos: PeriodoElectricoRow[];
   cargas: CargaEntry[];
+  onNewRecibo: () => void;
 }) {
   const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
 
@@ -1718,7 +1823,18 @@ function SeccionEnergia({
   const recibosAnteriores = periodos.slice(1);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-white/80 sm:text-base">⚡ Centro de Energía</h2>
+        <button
+          type="button"
+          onClick={onNewRecibo}
+          className="rounded-xl bg-byd-500 px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-byd-400 sm:text-sm"
+        >
+          + Nuevo recibo
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {/* Card A: Recibo CFE vigente */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         {ultimoRecibo ? (
@@ -1768,6 +1884,7 @@ function SeccionEnergia({
               <p className="text-sm text-white/30">No hay recibos CFE registrados.</p>
               <button
                 type="button"
+                onClick={onNewRecibo}
                 className="rounded-xl border border-byd-500/30 bg-byd-500/10 px-4 py-2 text-sm font-medium text-byd-400 transition-colors hover:bg-byd-500/20"
               >
                 + Agregar primer recibo
@@ -1873,6 +1990,7 @@ function SeccionEnergia({
         )}
       </div>
     </div>
+    </>
   );
 }
 
@@ -2236,7 +2354,7 @@ export default function Home() {
           )}
 
           {/* ── Energía ── */}
-          {section === "energia" && <SeccionEnergia periodos={periodosElectricos} cargas={cargasList} />}
+          {section === "energia" && <SeccionEnergia periodos={periodosElectricos} cargas={cargasList} onNewRecibo={() => setFormModal("recibo")} />}
         </div>
 
         {/* ═══ FOOTER ═══ */}
@@ -2306,6 +2424,20 @@ export default function Home() {
             setKpiVersion((v) => v + 1);
             setFormModal(null);
           }}
+        />
+      </Modal>
+
+      <Modal isOpen={formModal === "recibo"} onClose={() => setFormModal(null)} title="➕ Nuevo recibo CFE">
+        <ReciboForm
+          onSave={async (data) => {
+            const ok = await insertPeriodoElectrico(data);
+            if (ok) {
+              setFormModal(null);
+              setKpiVersion((v) => v + 1);
+            }
+            return ok;
+          }}
+          onClose={() => setFormModal(null)}
         />
       </Modal>
     </div>

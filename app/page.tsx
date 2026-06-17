@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.1.1";
+const APP_VERSION = "0.5.1.2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -50,7 +50,6 @@ interface VehicleSettings {
   rendimientoKmKwh: number;
   precioGasolina: number;
   totalKm: number;
-  costoKwhManualAlto: number;
 }
 
 type Section = "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes" | "energia";
@@ -121,7 +120,6 @@ const DEFAULT_SETTINGS: VehicleSettings = {
   rendimientoKmKwh: 6.2,
   precioGasolina: 1250,
   totalKm: 15000,
-  costoKwhManualAlto: 5.00,
 };
 
 // ── Initialize only settings on first mount ──────────────────────────────
@@ -1058,18 +1056,6 @@ function SettingsForm({
           ))}
         </select>
       </div>
-
-      {/* Costo kWh tope para método conservador */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.03] p-4">
-        <p className="mb-3 text-xs font-semibold text-white/60">Costo de energía (avanzado)</p>
-        <InputField label="Costo por kWh tope ($)" type="number" step="0.01" value={String(settings.costoKwhManualAlto)} onChange={(v) => {
-          const s = { ...settings, costoKwhManualAlto: parseFloat(v) || 0 };
-          onSave(s);
-        }} />
-        <p className="mt-1.5 text-[10px] text-white/30">
-          Usado en el módulo Energía para el cálculo conservador del costo BYD.
-        </p>
-      </div>
       <InputField label="Rendimiento eléctrico (km/kWh)" type="number" step="0.1" value={rendimientoKmKwh} onChange={setRendimientoKmKwh} required />
       <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />
 
@@ -1715,150 +1701,10 @@ function ComparativoGasolinaVsElectricidad() {
 }
 
 // ── Energía component ────────────────────────────────────────────────────
-function SeccionEnergia({
-  periodos,
-  cargas,
-  settings,
-}: {
-  periodos: PeriodoElectricoRow[];
-  cargas: CargaEntry[];
-  settings: VehicleSettings;
-}) {
-  if (periodos.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-12 text-white/30">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-        <p className="text-sm">No hay recibos CFE registrados todavía.</p>
-      </div>
-    );
-  }
-
-  const ultimoPeriodo = periodos[0];
-  const kwhBimestre = Number(ultimoPeriodo.kwh_bimestre);
-  const costoKwh = ultimoPeriodo.costo_kwh_mxn ? Number(ultimoPeriodo.costo_kwh_mxn) : 0;
-  const ini = ultimoPeriodo.fecha_inicio;
-  const fin = ultimoPeriodo.fecha_fin;
-
-  // Calcular kWh del BYD en el periodo
-  const kwhBydPeriodo = cargas
-    .filter((c) => c.fecha >= ini && c.fecha <= fin)
-    .reduce((sum, c) => sum + c.kwhCargados, 0);
-  const kwhBydRounded = Math.round(kwhBydPeriodo * 10) / 10;
-
-  const kwhCasaEstimado = Math.max(0, kwhBimestre - kwhBydRounded);
-  const pctByd = kwhBimestre > 0 ? Math.round((kwhBydRounded / kwhBimestre) * 100) : 0;
-  const pctCasa = 100 - pctByd;
-
-  const costoBydPromedio = kwhBydRounded * costoKwh;
-  const costoBydConservador = kwhBydRounded * (settings.costoKwhManualAlto || 5);
-  const costoBydPromedioRounded = Math.round(costoBydPromedio * 100) / 100;
-  const costoBydConservadorRounded = Math.round(costoBydConservador * 100) / 100;
-  const costoBydAhorro = Math.max(0, Math.round((costoBydConservador - costoBydPromedio) * 100) / 100);
-  const costoCasapromedio = Math.round(kwhCasaEstimado * costoKwh * 100) / 100;
-
-  const fmt = (n: number) => formatCurrency(n);
-  const fmtNum = (n: number) => n.toLocaleString("es-MX", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-
+function SeccionEnergia() {
   return (
-    <div className="space-y-4">
-      {/* Periodo activo */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Periodo activo</h3>
-        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div>
-            <p className="text-[11px] text-white/40">Inicio</p>
-            <p className="font-medium text-white/80">{formatDate(ini)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-white/40">Fin</p>
-            <p className="font-medium text-white/80">{formatDate(fin)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-white/40">Consumo total</p>
-            <p className="font-medium text-white/80">{fmtNum(kwhBimestre)} kWh</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-white/40">Costo promedio</p>
-            <p className="font-medium text-white/80">{fmt(costoKwh)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Distribución Casa vs BYD */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Distribución del consumo</h3>
-
-        {/* Barra de progreso visual */}
-        <div className="mb-3 flex h-4 overflow-hidden rounded-full bg-white/[0.06]">
-          <div
-            className="bg-byd-400 transition-all duration-500"
-            style={{ width: `${pctByd}%` }}
-          />
-          <div
-            className="bg-amber-500/40 transition-all duration-500"
-            style={{ width: `${pctCasa}%` }}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-lg bg-byd-500/10 p-3">
-            <div className="flex items-center gap-2">
-              <div className="h-2.5 w-2.5 rounded-full bg-byd-400" />
-              <span className="text-xs font-medium text-white/50">BYD</span>
-            </div>
-            <p className="mt-1 text-lg font-semibold text-byd-400">{pctByd}%</p>
-            <p className="text-xs text-white/40">{fmtNum(kwhBydRounded)} kWh</p>
-          </div>
-          <div className="rounded-lg bg-amber-500/10 p-3">
-            <div className="flex items-center gap-2">
-              <div className="h-2.5 w-2.5 rounded-full bg-amber-500/40" />
-              <span className="text-xs font-medium text-white/50">Casa</span>
-            </div>
-            <p className="mt-1 text-lg font-semibold text-amber-400">{pctCasa}%</p>
-            <p className="text-xs text-white/40">{fmtNum(kwhCasaEstimado)} kWh</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Comparativa de costos */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Costo del auto (BYD)</h3>
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-            <div>
-              <p className="font-medium text-white/80">Promedio</p>
-              <p className="text-[11px] text-white/30">{fmtNum(kwhBydRounded)} kWh × {fmt(costoKwh)}</p>
-            </div>
-            <p className="font-semibold text-byd-400">{fmt(costoBydPromedioRounded)}</p>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-            <div>
-              <p className="font-medium text-white/80">Conservador</p>
-              <p className="text-[11px] text-white/30">{fmtNum(kwhBydRounded)} kWh × {fmt(settings.costoKwhManualAlto)}</p>
-            </div>
-            <p className="font-semibold text-amber-400">{fmt(costoBydConservadorRounded)}</p>
-          </div>
-          {costoBydAhorro > 0 && (
-            <div className="flex items-center justify-between rounded-lg bg-byd-500/5 px-3 py-2.5">
-              <p className="font-medium text-byd-400">Ahorro estimado</p>
-              <p className="font-semibold text-byd-400">{fmt(costoBydAhorro)}</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Costo casa */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/80 sm:text-base">Costo de la casa</h3>
-          <p className="text-sm font-semibold text-white">{fmt(costoCasapromedio)}</p>
-        </div>
-        <p className="mt-1 text-xs text-white/30">{fmtNum(kwhCasaEstimado)} kWh × {fmt(costoKwh)}</p>
-      </div>
+    <div className="flex items-center justify-center py-16 text-white/30">
+      <p className="text-sm">Próximamente disponible</p>
     </div>
   );
 }
@@ -2049,6 +1895,7 @@ export default function Home() {
                 <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
+            <span className="hidden text-[10px] text-white/30 sm:block">v{APP_VERSION}</span>
             <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-1.5">
               <ProgressRing pct={batteryPct} />
               <div className="text-right">
@@ -2222,18 +2069,12 @@ export default function Home() {
           )}
 
           {/* ── Energía ── */}
-          {section === "energia" && (
-            <SeccionEnergia
-              periodos={periodosElectricos}
-              cargas={cargasList}
-              settings={settings}
-            />
-          )}
+          {section === "energia" && <SeccionEnergia />}
         </div>
 
         {/* ═══ FOOTER ═══ */}
         <footer className="mt-8 text-center text-[11px] text-white/15 sm:text-xs">
-          BYD Wallet · v{APP_VERSION}
+          BYD Wallet
         </footer>
       </div>
 

@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
+import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow, type MaintenanceExtraCostRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
 const APP_VERSION = "0.6.1";
@@ -370,6 +370,34 @@ async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRo
   }
 
   return periodos;
+}
+
+async function fetchMaintenanceRecordsFromSupabase(): Promise<MaintenanceRecordRow[]> {
+  const sb = getSupabaseClient();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("maintenance_records")
+    .select("*")
+    .order("fecha_realizada", { ascending: false });
+  if (error) {
+    console.warn("[BYD Wallet] Error al consultar maintenance_records:", error.message);
+    return [];
+  }
+  return (data || []) as MaintenanceRecordRow[];
+}
+
+async function fetchMaintenanceExtraCostsFromSupabase(): Promise<MaintenanceExtraCostRow[]> {
+  const sb = getSupabaseClient();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("maintenance_extra_costs")
+    .select("*")
+    .order("date", { ascending: false });
+  if (error) {
+    console.warn("[BYD Wallet] Error al consultar maintenance_extra_costs:", error.message);
+    return [];
+  }
+  return (data || []) as MaintenanceExtraCostRow[];
 }
 
 async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">): Promise<boolean> {
@@ -2360,59 +2388,51 @@ function monthKeyLocal(d: Date): string {
 }
 
 function monthKeyFromIso(iso: string): string {
-  return iso.length >= 7 ? iso.slice(0, 7) : monthKeyLocal(new Date(iso));
+  const d = normalizeDate(iso);
+  return d ? monthKeyLocal(d) : "";
 }
 
-function costoBydFromPeriodo(p: PeriodoElectricoRow): number {
-  const kwh = p.kwh_byd_periodo != null ? Number(p.kwh_byd_periodo) : 0;
+function isPeriodoElectricoValido(r: PeriodoElectricoRow): boolean {
+  const diffMs =
+    new Date(`${r.fecha_fin}T12:00:00`).getTime() -
+    new Date(`${r.fecha_inicio}T12:00:00`).getTime();
+  const diffDays = diffMs / 86400000;
+  return diffDays >= 20 && diffDays <= 70;
+}
+
+/** Misma selección que Centro de Energía: recibo válido más reciente. */
+function getUltimoReciboElectrico(periodos: PeriodoElectricoRow[]): PeriodoElectricoRow | null {
+  const validos = periodos.filter(isPeriodoElectricoValido);
+  if (validos.length > 0) return validos[0];
+  return periodos.length > 0 ? periodos[0] : null;
+}
+
+function getCentroEnergiaCostos(ultimoRecibo: PeriodoElectricoRow | null, cargas: CargaEntry[]) {
+  if (!ultimoRecibo) return null;
+  const bydInfo = getBydKwhForPeriod(ultimoRecibo, cargas);
+  const kwhByd = bydInfo.value;
+  const kwhBimestre = Number(ultimoRecibo.kwh_bimestre) || 0;
+  const costoKwh = ultimoRecibo.costo_kwh_mxn ? Number(ultimoRecibo.costo_kwh_mxn) : 0;
+  const kwhCasa = kwhBimestre > 0 ? Math.max(0, kwhBimestre - kwhByd) : 0;
+  const costoByd =
+    costoKwh > 0 && kwhByd > 0 ? Math.round(kwhByd * costoKwh * 100) / 100 : null;
+  const costoCasa =
+    costoKwh > 0 && kwhCasa > 0 ? Math.round(kwhCasa * costoKwh * 100) / 100 : null;
+  return {
+    costoKwh: costoKwh > 0 ? costoKwh : null,
+    kwhByd,
+    kwhCasa,
+    kwhBimestre,
+    costoByd,
+    costoCasa,
+  };
+}
+
+function costoBydFromPeriodo(p: PeriodoElectricoRow, cargas: CargaEntry[] = []): number {
+  const bydInfo = getBydKwhForPeriod(p, cargas);
   const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
-  if (kwh <= 0 || rate <= 0) return 0;
-  return Math.round(kwh * rate * 100) / 100;
-}
-
-function findPeriodoVigente(periodos: PeriodoElectricoRow[]): PeriodoElectricoRow | null {
-  const now = new Date();
-  const covering = periodos.filter((p) => {
-    const start = new Date(`${p.fecha_inicio}T12:00:00`);
-    const fin = new Date(`${p.fecha_fin}T12:00:00`);
-    return now >= start && now <= fin;
-  });
-  if (covering.length > 0) {
-    return covering.sort((a, b) => b.fecha_fin.localeCompare(a.fecha_fin))[0];
-  }
-  return periodos.length > 0
-    ? [...periodos].sort((a, b) => b.fecha_fin.localeCompare(a.fecha_fin))[0]
-    : null;
-}
-
-/** Prorratea el costo del recibo CFE vigente al mes calendario actual. */
-function gastoMensualProrrateadoFromPeriodo(
-  periodos: PeriodoElectricoRow[],
-  tipo: "byd" | "casa",
-): number | null {
-  const vigente = findPeriodoVigente(periodos);
-  if (!vigente) return null;
-
-  const kwhTotal = Number(vigente.kwh_bimestre || 0);
-  const kwhByd = vigente.kwh_byd_periodo != null ? Number(vigente.kwh_byd_periodo) : 0;
-  const kwh = tipo === "byd" ? kwhByd : Math.max(0, kwhTotal - kwhByd);
-  const rate = vigente.costo_kwh_mxn ? Number(vigente.costo_kwh_mxn) : 0;
-  if (kwh <= 0 || rate <= 0) return null;
-
-  const costoPeriodo = Math.round(kwh * rate * 100) / 100;
-  const start = new Date(`${vigente.fecha_inicio}T12:00:00`);
-  const fin = new Date(`${vigente.fecha_fin}T12:00:00`);
-  const periodDays = Math.max(1, Math.round((fin.getTime() - start.getTime()) / 86400000) + 1);
-
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  const overlapStart = new Date(Math.max(start.getTime(), monthStart.getTime()));
-  const overlapEnd = new Date(Math.min(fin.getTime(), monthEnd.getTime()));
-  if (overlapEnd < overlapStart) return null;
-
-  const daysInMonth = Math.max(1, Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1);
-  return Math.round((costoPeriodo * daysInMonth / periodDays) * 100) / 100;
+  if (bydInfo.value <= 0 || rate <= 0) return 0;
+  return Math.round(bydInfo.value * rate * 100) / 100;
 }
 
 function getDashboardEstadoMantenimiento(
@@ -2427,6 +2447,8 @@ function getDashboardEstadoMantenimiento(
   return "Al día";
 }
 
+type DashboardGastoRow = { fecha: string; costo: number };
+
 type DashboardGastoMes = {
   key: string;
   label: string;
@@ -2439,8 +2461,9 @@ type DashboardGastoMes = {
 function buildDashboardGastoPorMes12(
   gasolinaList: GasolinaEntry[],
   periodosElectricos: PeriodoElectricoRow[],
-  mantenimientoList: MantenimientoEntry[],
-  otrosCostosList: OtroCostoEntry[],
+  cargasList: CargaEntry[],
+  mantenimientoRows: DashboardGastoRow[],
+  otrosRows: DashboardGastoRow[],
 ): DashboardGastoMes[] {
   const now = new Date();
   const months: DashboardGastoMes[] = Array.from({ length: 12 }, (_, i) => {
@@ -2457,26 +2480,32 @@ function buildDashboardGastoPorMes12(
   const find = (k: string) => months.find((m) => m.key === k);
 
   gasolinaList.forEach((e) => {
-    const m = find(monthKeyFromIso(e.fecha));
+    const key = monthKeyFromIso(e.fecha);
+    if (!key) return;
+    const m = find(key);
     if (m) m.gasolina += e.costo;
   });
 
   periodosElectricos.forEach((p) => {
-    const costoByd = costoBydFromPeriodo(p);
+    const costoByd = costoBydFromPeriodo(p, cargasList);
     if (costoByd <= 0) return;
-    const m = find(monthKeyFromIso(p.fecha_fin));
+    const key = monthKeyFromIso(p.fecha_fin);
+    if (!key) return;
+    const m = find(key);
     if (m) m.electricidad += costoByd;
   });
 
-  mantenimientoList.forEach((e) => {
-    if (!e.fecha) return;
-    const m = find(monthKeyFromIso(e.fecha));
-    if (m) m.mantenimiento += e.costoReal ?? e.costo;
+  mantenimientoRows.forEach((e) => {
+    const key = monthKeyFromIso(e.fecha);
+    if (!key) return;
+    const m = find(key);
+    if (m) m.mantenimiento += e.costo;
   });
 
-  otrosCostosList.forEach((e) => {
-    if (!e.fecha) return;
-    const m = find(monthKeyFromIso(e.fecha));
+  otrosRows.forEach((e) => {
+    const key = monthKeyFromIso(e.fecha);
+    if (!key) return;
+    const m = find(key);
     if (m) m.otros += e.costo;
   });
 
@@ -2484,15 +2513,16 @@ function buildDashboardGastoPorMes12(
 }
 
 // ── GastoEvolucionLine ────────────────────────────────────────────────────
-function GastoEvolucionLine({ gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList }: {
+function GastoEvolucionLine({ gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows }: {
   gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
-  mantenimientoList: MantenimientoEntry[];
-  otrosCostosList: OtroCostoEntry[];
+  cargasList: CargaEntry[];
+  mantenimientoRows: DashboardGastoRow[];
+  otrosRows: DashboardGastoRow[];
 }) {
   const data = useMemo(
-    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList),
-    [gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList],
+    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows),
+    [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows],
   );
 
   return (
@@ -2516,15 +2546,16 @@ function GastoEvolucionLine({ gasolinaList, periodosElectricos, mantenimientoLis
 }
 
 // ── GastoComparativoStacked ───────────────────────────────────────────────
-function GastoComparativoStacked({ gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList }: {
+function GastoComparativoStacked({ gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows }: {
   gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
-  mantenimientoList: MantenimientoEntry[];
-  otrosCostosList: OtroCostoEntry[];
+  cargasList: CargaEntry[];
+  mantenimientoRows: DashboardGastoRow[];
+  otrosRows: DashboardGastoRow[];
 }) {
   const data = useMemo(
-    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList),
-    [gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList],
+    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows),
+    [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows],
   );
 
   return (
@@ -2644,8 +2675,11 @@ function SeccionDashboard({
   gasolinaList,
   kpisElectricos,
   periodosElectricos,
+  cargasList,
   mantenimientoList,
+  mantenimientoRows,
   otrosCostosList,
+  otrosRows,
   onNavigate,
 }: {
   odometroActual: number;
@@ -2655,14 +2689,19 @@ function SeccionDashboard({
   gasolinaList: GasolinaEntry[];
   kpisElectricos: { total: number; mensual: number; anual: number };
   periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
   mantenimientoList: MantenimientoEntry[];
+  mantenimientoRows: DashboardGastoRow[];
   otrosCostosList: OtroCostoEntry[];
+  otrosRows: DashboardGastoRow[];
   onNavigate: (s: Section) => void;
 }) {
   // ── Integrated spend ──────────────────────────────────────────────────
   const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
   const totalOtros   = otrosCostosList.reduce((s, e) => s + e.costo, 0);
-  const totalElec    = kpisElectricos.total;
+  const totalElec    = periodosElectricos.reduce(
+    (s, p) => s + costoBydFromPeriodo(p, cargasList), 0,
+  );
   const totalIntegrado = gastoGasolina + totalElec + totalOficial + totalOtros;
   const costoPorKmGlobal =
     odometroActual > 0 ? Math.round((totalIntegrado / odometroActual) * 100) / 100 : 0;
@@ -2706,17 +2745,20 @@ function SeccionDashboard({
     ? Math.round(deltaKms.reduce((s, d) => s + d, 0) / deltaKms.length)
     : 0;
 
-  // ── Electricidad summary ──────────────────────────────────────────────
+  // ── Electricidad summary (alineado con Centro de Energía) ───────────────
+  const ultimoRecibo = getUltimoReciboElectrico(periodosElectricos);
+  const energiaCostos = getCentroEnergiaCostos(ultimoRecibo, cargasList);
   const totalKwhByd = periodosElectricos.reduce(
-    (s, p) => s + (p.kwh_byd_periodo ? Number(p.kwh_byd_periodo) : 0), 0
+    (s, p) => s + getBydKwhForPeriod(p, cargasList).value, 0,
   );
-  const avgKwhRate = (() => {
-    const valid = periodosElectricos.filter((p) => p.costo_kwh_mxn && Number(p.costo_kwh_mxn) > 0);
-    if (!valid.length) return 0;
-    return Math.round((valid.reduce((s, p) => s + Number(p.costo_kwh_mxn), 0) / valid.length) * 100) / 100;
-  })();
-  const gastoBydMensual = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "byd");
-  const gastoCasaMensual = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "casa");
+  const tarifaRecibo = energiaCostos?.costoKwh ?? null;
+  const gastoBydMensual = energiaCostos?.costoByd ?? null;
+  const gastoCasaMensual = energiaCostos?.costoCasa ?? null;
+  const gastoAnualByd = periodosElectricos.reduce((s, p) => {
+    const fin = normalizeDate(p.fecha_fin);
+    if (!fin || fin.getFullYear() !== new Date().getFullYear()) return s;
+    return s + costoBydFromPeriodo(p, cargasList);
+  }, 0);
 
   // ── Spend proportions (for stacked bar) ──────────────────────────────
   const segments = [
@@ -2738,14 +2780,16 @@ function SeccionDashboard({
           <GastoEvolucionLine
             gasolinaList={gasolinaList}
             periodosElectricos={periodosElectricos}
-            mantenimientoList={mantenimientoList}
-            otrosCostosList={otrosCostosList}
+            cargasList={cargasList}
+            mantenimientoRows={mantenimientoRows}
+            otrosRows={otrosRows}
           />
           <GastoComparativoStacked
             gasolinaList={gasolinaList}
             periodosElectricos={periodosElectricos}
-            mantenimientoList={mantenimientoList}
-            otrosCostosList={otrosCostosList}
+            cargasList={cargasList}
+            mantenimientoRows={mantenimientoRows}
+            otrosRows={otrosRows}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <GastoDistribucionPie segments={segments} />
@@ -2755,7 +2799,7 @@ function SeccionDashboard({
               <div className="space-y-1.5 text-[10px]">
                 {[
                   { icon: "⛽", label: "Costo por km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
-                  { icon: "⚡", label: "Costo por km (eléctrico)", val: avgKwhRate > 0 ? `$${(avgKwhRate * 0.174).toFixed(2)}` : "—" },
+                  { icon: "⚡", label: "Costo por km (eléctrico)", val: tarifaRecibo != null ? `$${(tarifaRecibo * 0.174).toFixed(2)}` : "—" },
                   { icon: "📊", label: "Costo por km (total)",    val: `$${costoPorKmGlobal.toFixed(2)}` },
                   { icon: "📅", label: "Gasto diario promedio",  val: formatCurrency(Math.round(totalIntegrado / 365)) },
                   { icon: "📅", label: "Gasto mensual promedio", val: formatCurrency(Math.round(totalIntegrado / 12)) },
@@ -2844,10 +2888,10 @@ function SeccionDashboard({
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
               <div><p className="text-white/25 leading-tight">Consumo BYD (kWh)</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
-              <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{avgKwhRate > 0 ? `$${avgKwhRate.toFixed(2)}/kWh` : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{tarifaRecibo != null ? `$${tarifaRecibo.toFixed(4)}/kWh` : "Sin dato"}</p></div>
               <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{gastoBydMensual != null ? formatCurrency(gastoBydMensual) : "Sin dato"}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto mensual de tu vivienda</p><p className="font-semibold text-white/70">{gastoCasaMensual != null ? formatCurrency(gastoCasaMensual) : "Sin dato"}</p></div>
-              <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.anual)}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(Math.round(gastoAnualByd * 100) / 100)}</p></div>
             </div>
           </button>
 
@@ -4152,13 +4196,8 @@ function SeccionEnergia({
 }) {
   // Select vigente: most recent valid period (20–70 days).
   // If all are suspicious, fall back to periodos[0] with a flag.
-  const isPeriodoValido = (r: PeriodoElectricoRow) => {
-    const days = (new Date(r.fecha_fin).getTime() - new Date(r.fecha_inicio).getTime()) / 86400000;
-    return days >= 20 && days <= 70;
-  };
-  const validos = periodos.filter(isPeriodoValido);
-  const viGenteIsSuspicious = validos.length === 0 && periodos.length > 0;
-  const ultimoRecibo = validos.length > 0 ? validos[0] : periodos.length > 0 ? periodos[0] : null;
+  const viGenteIsSuspicious = periodos.length > 0 && !periodos.some(isPeriodoElectricoValido);
+  const ultimoRecibo = getUltimoReciboElectrico(periodos);
 
   // Compute kWh BYD — use stored value from DB if > 0, else calculate from cargas
   const bydInfo = ultimoRecibo ? getBydKwhForPeriod(ultimoRecibo, cargas) : { value: 0, isManual: false };
@@ -4684,6 +4723,8 @@ export default function Home() {
   const [recargas, setRecargas] = useState<RecargaRow[]>([]);
   const [config, setConfig] = useState<ConfiguracionRow | null>(null);
   const [periodosElectricos, setPeriodosElectricos] = useState<PeriodoElectricoRow[]>([]);
+  const [maintenanceRecordsDb, setMaintenanceRecordsDb] = useState<MaintenanceRecordRow[]>([]);
+  const [maintenanceExtraDb, setMaintenanceExtraDb] = useState<MaintenanceExtraCostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingRecibo, setEditingRecibo] = useState<PeriodoElectricoRow | null>(null);
@@ -4714,8 +4755,14 @@ export default function Home() {
         setConfig(configData);
 
         // Carga adicional de periodos eléctricos (independiente, no bloquea)
-        const periodosData = await fetchPeriodosElectricosFromSupabase();
+        const [periodosData, maintenanceData, extraCostsData] = await Promise.all([
+          fetchPeriodosElectricosFromSupabase(),
+          fetchMaintenanceRecordsFromSupabase(),
+          fetchMaintenanceExtraCostsFromSupabase(),
+        ]);
         setPeriodosElectricos(periodosData);
+        setMaintenanceRecordsDb(maintenanceData);
+        setMaintenanceExtraDb(extraCostsData);
 
         if (recargasData.length === 0) {
           console.warn("[BYD Wallet] No se encontraron recargas en Supabase");
@@ -4845,6 +4892,40 @@ export default function Home() {
   const otrosCostosList = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, [])
     .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
+  const gastoGasolinaTotal = useMemo(
+    () => Math.round(gasolinaList.reduce((s, e) => s + e.costo, 0) * 100) / 100,
+    [gasolinaList],
+  );
+
+  const dashboardMantenimientoRows = useMemo((): DashboardGastoRow[] => {
+    if (maintenanceRecordsDb.length > 0) {
+      return maintenanceRecordsDb.map((r) => ({
+        fecha: r.fecha_realizada,
+        costo: Number(r.costo_real),
+      }));
+    }
+    return mantenimientoList
+      .filter((e) => e.fecha)
+      .map((e) => ({ fecha: e.fecha, costo: e.costoReal ?? e.costo }));
+  }, [maintenanceRecordsDb, mantenimientoList, kpiVersion]);
+
+  const dashboardOtrosRows = useMemo((): DashboardGastoRow[] => {
+    if (maintenanceExtraDb.length > 0) {
+      return maintenanceExtraDb.map((r) => ({
+        fecha: r.date,
+        costo: Number(r.cost),
+      }));
+    }
+    return otrosCostosList
+      .filter((e) => e.fecha)
+      .map((e) => ({ fecha: e.fecha, costo: e.costo }));
+  }, [maintenanceExtraDb, otrosCostosList, kpiVersion]);
+
+  const centroEnergiaResumen = useMemo(
+    () => getCentroEnergiaCostos(getUltimoReciboElectrico(periodosElectricos), cargasList),
+    [periodosElectricos, cargasList],
+  );
+
   // ── Global health/próximo computation (for top KPI chips) ─────────────
   const proximoServicioGlobal = BYD_KING_SERVICIOS.find((s) => s.km > kpis.odometroActual) ?? null;
   const kmRestantesGlobal = proximoServicioGlobal ? proximoServicioGlobal.km - kpis.odometroActual : 0;
@@ -4867,7 +4948,8 @@ export default function Home() {
     healthScoreGlobal >= 80 ? "#a3e635" :
     healthScoreGlobal >= 70 ? "#fbbf24" : "#f87171";
 
-  const gastoBydMensualGlobal = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "byd");
+  const gastoBydMensualGlobal = centroEnergiaResumen?.costoByd ?? null;
+  const tarifaKwhGlobal = centroEnergiaResumen?.costoKwh ?? null;
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
@@ -5078,7 +5160,7 @@ export default function Home() {
           <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
           <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
           <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
-          <KpiChip label="Costo eléctrico" value={gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : "Sin dato"} sub="Gasto mensual BYD" color="text-green-400/80" />
+          <KpiChip label="Costo eléctrico" value={gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : "Sin dato"} sub={tarifaKwhGlobal != null ? `$${tarifaKwhGlobal.toFixed(4)}/kWh` : "Gasto BYD · último recibo"} color="text-green-400/80" />
         </section>
 
         {/* Mobile-only nav tabs */}
@@ -5094,14 +5176,17 @@ export default function Home() {
           {section === "dashboard" && (
             <SeccionDashboard
               odometroActual={kpis.odometroActual}
-              gastoGasolina={kpis.totalGasolina}
-              totalLitros={kpis.totalLitros}
+              gastoGasolina={gastoGasolinaTotal}
+              totalLitros={gasolinaList.reduce((s, e) => s + e.litros, 0)}
               rendimientoKmL={kpis.rendimientoKmL}
               gasolinaList={gasolinaList}
               kpisElectricos={kpisElectricos}
               periodosElectricos={periodosElectricos}
+              cargasList={cargasList}
               mantenimientoList={mantenimientoList}
+              mantenimientoRows={dashboardMantenimientoRows}
               otrosCostosList={otrosCostosList}
+              otrosRows={dashboardOtrosRows}
               onNavigate={(s) => setSection(s)}
             />
           )}

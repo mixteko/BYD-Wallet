@@ -61,6 +61,18 @@ export interface MaintenanceRecordRow {
   created_at?: string | null;
 }
 
+export interface MaintenanceExtraCostRow {
+  id: number;
+  date: string;
+  odometer: number | null;
+  concept: string;
+  category: string;
+  cost: number;
+  provider: string | null;
+  notes: string | null;
+  created_at?: string | null;
+}
+
 // ── Client — lazy singleton ──────────────────────────────────────────────
 
 let client: ReturnType<typeof createClient> | null = null;

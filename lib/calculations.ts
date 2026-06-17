@@ -84,6 +84,59 @@ export type DashboardGastoMes = {
   otros: number;
 };
 
+/** Registro de mantenimiento para agregación mensual (Informes). */
+export type MaintenanceGastoRecord = {
+  fecha_realizada?: string | null;
+  fecha_realizado?: string | null;
+  date?: string | null;
+  created_at?: string | null;
+  costo_real?: number | null;
+  real_cost?: number | null;
+  cost?: number | null;
+  costo_estimado?: number | null;
+  estado?: string | null;
+};
+
+export function isMaintenanceRecordRealizado(estado: string | null | undefined): boolean {
+  if (!estado?.trim()) return true;
+  const e = estado.toLowerCase().trim();
+  if (e === "pendiente" || e === "pending" || e === "programado") return false;
+  return e === "completado" || e === "realizado" || e === "completed" || e === "done";
+}
+
+/** Prioriza fecha del servicio; no usa created_at si hay fecha de servicio. */
+export function resolveMaintenanceServiceDate(record: MaintenanceGastoRecord): string | null {
+  const serviceDate =
+    record.fecha_realizada?.trim()
+    || record.fecha_realizado?.trim()
+    || record.date?.trim()
+    || null;
+  return serviceDate;
+}
+
+export function resolveMaintenanceGastoCost(record: MaintenanceGastoRecord): number {
+  const real = Number(record.costo_real ?? record.real_cost ?? record.cost ?? 0);
+  if (real > 0) return roundMoney(real);
+  const estimado = Number(record.costo_estimado ?? 0);
+  return estimado > 0 ? roundMoney(estimado) : 0;
+}
+
+/** Mantenimiento realizado → fila de gasto por mes de servicio. */
+export function mapMaintenanceRecordsToGastoRows(
+  records: MaintenanceGastoRecord[],
+): GastoRow[] {
+  return records
+    .filter((r) => isMaintenanceRecordRealizado(r.estado))
+    .map((r) => {
+      const fecha = resolveMaintenanceServiceDate(r);
+      if (!fecha) return null;
+      const costo = resolveMaintenanceGastoCost(r);
+      if (costo <= 0) return null;
+      return { fecha, costo };
+    })
+    .filter((r): r is GastoRow => r !== null);
+}
+
 // ── Fechas ──────────────────────────────────────────────────────────────────
 
 export function normalizeDate(fecha: string | null | undefined): Date | null {
@@ -475,7 +528,13 @@ export function buildMonthlyExpenseBreakdown12(
   electricCharges: ElectricChargeRow[],
   maintenanceRows: GastoRow[],
   otherCostRows: GastoRow[],
+  maintenanceRecords?: MaintenanceGastoRecord[],
 ): DashboardGastoMes[] {
+  const effectiveMaintenanceRows =
+    maintenanceRecords && maintenanceRecords.length > 0
+      ? mapMaintenanceRecordsToGastoRows(maintenanceRecords)
+      : maintenanceRows;
+
   const now = new Date();
   const months: DashboardGastoMes[] = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
@@ -501,11 +560,11 @@ export function buildMonthlyExpenseBreakdown12(
     m.electricidad = calculateElectricCostMonthly(electricPeriods, electricCharges, m.key);
   });
 
-  maintenanceRows.forEach((e) => {
+  effectiveMaintenanceRows.forEach((e) => {
     const key = monthKeyFromIso(e.fecha);
     if (!key) return;
     const m = find(key);
-    if (m) m.mantenimiento += e.costo;
+    if (m) m.mantenimiento = roundMoney(m.mantenimiento + e.costo);
   });
 
   otherCostRows.forEach((e) => {
@@ -556,10 +615,13 @@ export type RefillEfficiencyPoint = { label: string; kmL: number };
 
 export type ChargeEfficiencyPoint = { label: string; kmKwh: number };
 
+export type GlobalEfficiencyPoint = { label: string; kmLGlobal: number };
+
 export type EnergyEfficiencyChartPoint = {
   label: string;
   kmL: number | null;
   kmKwh: number | null;
+  kmLGlobal: number | null;
 };
 
 /** km/L por recarga: (odómetro actual − anterior) / litros cargados. */
@@ -598,16 +660,43 @@ export function buildEvEfficiencyHistory(charges: ElectricChargeRow[]): ChargeEf
     }));
 }
 
+/** Km/L global acumulado: km totales / litros acumulados entre recargas. */
+export function buildGlobalFuelEfficiencyHistory(fuelRows: FuelRow[]): GlobalEfficiencyPoint[] {
+  const sorted = [...fuelRows].sort((a, b) => {
+    const da = normalizeDate(a.fecha)?.getTime() ?? 0;
+    const db = normalizeDate(b.fecha)?.getTime() ?? 0;
+    if (da !== db) return da - db;
+    return a.kilometraje - b.kilometraje;
+  });
+  const points: GlobalEfficiencyPoint[] = [];
+  let cumKm = 0;
+  let cumLitros = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const km = sorted[i].kilometraje - sorted[i - 1].kilometraje;
+    if (km > 0 && sorted[i].litros > 0) {
+      cumKm += km;
+      cumLitros += sorted[i].litros;
+      points.push({
+        label: `#${points.length + 1}`,
+        kmLGlobal: Math.round((cumKm / cumLitros) * 100) / 100,
+      });
+    }
+  }
+  return points;
+}
+
 export function mergeEnergyEfficiencyForChart(
   fuelPoints: RefillEfficiencyPoint[],
   evPoints: ChargeEfficiencyPoint[],
+  globalPoints: GlobalEfficiencyPoint[] = [],
 ): EnergyEfficiencyChartPoint[] {
-  const maxLen = Math.max(fuelPoints.length, evPoints.length);
+  const maxLen = Math.max(fuelPoints.length, evPoints.length, globalPoints.length);
   if (maxLen === 0) return [];
   return Array.from({ length: maxLen }, (_, i) => ({
     label: `#${i + 1}`,
     kmL: fuelPoints[i]?.kmL ?? null,
     kmKwh: evPoints[i]?.kmKwh ?? null,
+    kmLGlobal: globalPoints[i]?.kmLGlobal ?? null,
   }));
 }
 

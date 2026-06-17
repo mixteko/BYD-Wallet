@@ -23,6 +23,7 @@ import {
   buildDailyExpenseLast7Days,
   buildFuelEfficiencyHistory,
   buildEvEfficiencyHistory,
+  buildGlobalFuelEfficiencyHistory,
   mergeEnergyEfficiencyForChart,
   formatCostoPorKm,
   formatTarifaKwh,
@@ -2469,20 +2470,6 @@ function GastoPorDia({
   );
 }
 
-function mapMaintenanceRecordsToGastoRows(
-  records: MaintenanceRecordRow[],
-  fallbackRows: DashboardGastoRow[],
-): DashboardGastoRow[] {
-  const fromDb = records
-    .filter((r) => r.fecha_realizada)
-    .map((r) => ({
-      fecha: r.fecha_realizada,
-      costo: Number(r.costo_real) || 0,
-    }));
-  if (fromDb.length > 0) return fromDb;
-  return fallbackRows;
-}
-
 function GastoPorMes({
   gasolinaList,
   periodosElectricos,
@@ -2498,20 +2485,14 @@ function GastoPorMes({
   otrosRows: DashboardGastoRow[];
   maintenanceRecords?: MaintenanceRecordRow[];
 }) {
-  const effectiveMaintenanceRows = useMemo(
-    () => (maintenanceRecords
-      ? mapMaintenanceRecordsToGastoRows(maintenanceRecords, mantenimientoRows)
-      : mantenimientoRows),
-    [maintenanceRecords, mantenimientoRows],
-  );
-
   const data = useMemo(() => {
     return buildMonthlyExpenseBreakdown12(
       gasolinaList,
       periodosElectricos,
       cargasList,
-      effectiveMaintenanceRows,
+      mantenimientoRows,
       otrosRows,
+      maintenanceRecords,
     ).map((m) => ({
       mes: m.label,
       gasolina: Math.round(m.gasolina * 100) / 100,
@@ -2519,7 +2500,7 @@ function GastoPorMes({
       mantenimiento: Math.round(m.mantenimiento * 100) / 100,
       otros: Math.round(m.otros * 100) / 100,
     }));
-  }, [gasolinaList, periodosElectricos, cargasList, effectiveMaintenanceRows, otrosRows]);
+  }, [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows, maintenanceRecords]);
   return (
     <ChartCard title="Gasto por mes">
       <ResponsiveContainer width="100%" height={130}>
@@ -2567,12 +2548,14 @@ function RendimientoHistorico({
 }) {
   const fuelPoints = useMemo(() => buildFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
   const evPoints = useMemo(() => buildEvEfficiencyHistory(cargasList), [cargasList]);
+  const globalPoints = useMemo(() => buildGlobalFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
   const data = useMemo(
-    () => mergeEnergyEfficiencyForChart(fuelPoints, evPoints),
-    [fuelPoints, evPoints],
+    () => mergeEnergyEfficiencyForChart(fuelPoints, evPoints, globalPoints),
+    [fuelPoints, evPoints, globalPoints],
   );
   const hasGasolina = fuelPoints.length > 0;
   const hasElectricidad = evPoints.length > 0;
+  const hasGlobal = globalPoints.length > 0;
 
   if (!hasGasolina) {
     return (
@@ -2586,8 +2569,11 @@ function RendimientoHistorico({
 
   return (
     <ChartCard title="Rendimiento histórico">
+      {hasGasolina && !hasElectricidad && (
+        <p className="mb-1.5 text-[9px] text-white/30">Faltan datos EV para calcular km/kWh.</p>
+      )}
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={data} margin={{ top: 4, right: hasElectricidad ? 4 : 4, left: -20, bottom: 0 }}>
+        <LineChart data={data} margin={{ top: 4, right: hasElectricidad ? 8 : 4, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
           <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
           <YAxis
@@ -2613,6 +2599,9 @@ function RendimientoHistorico({
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
             formatter={(value: unknown, name: unknown) => {
               if (value == null || value === "") return null;
+              if (name === "Km/L global") {
+                return [String(value), "Km/L global — km totales por litro acumulado"];
+              }
               return [String(value), String(name)];
             }}
           />
@@ -2627,6 +2616,19 @@ function RendimientoHistorico({
             connectNulls={false}
             name="Km/L gasolina"
           />
+          {hasGlobal && (
+            <Line
+              yAxisId="gasolina"
+              type="monotone"
+              dataKey="kmLGlobal"
+              stroke="#34d399"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={{ r: 2, fill: "#34d399" }}
+              connectNulls={false}
+              name="Km/L global"
+            />
+          )}
           {hasElectricidad && (
             <Line
               yAxisId="electrico"

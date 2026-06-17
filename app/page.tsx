@@ -952,21 +952,6 @@ function TicketForm({
 }
 
 // ── Settings form ────────────────────────────────────────────────────────────
-const MODELO_LABELS: Record<string, string> = {
-  "king-gl": "BYD King GL",
-  "king-gs": "BYD King GS",
-  personalizado: "Personalizado",
-};
-
-const CARGADOR_LABELS: Record<string, string> = {
-  portatil110: "Cargador portátil 110V",
-  portatil220: "Cargador portátil 220V",
-  wallbox: "Wallbox",
-  publicaAC: "Carga pública AC",
-  publicaDC: "Carga pública DC",
-  otro: "Otro",
-};
-
 function SettingsForm({
   settings,
   onSave,
@@ -982,8 +967,6 @@ function SettingsForm({
 }) {
   const [modelo, setModelo] = useState(settings.modelo);
   const [capacidadBateria, setCapacidadBateria] = useState(String(settings.capacidadBateria));
-  const [tipoCargador, setTipoCargador] = useState(settings.tipoCargador);
-  const [rendimientoKmKwh, setRendimientoKmKwh] = useState(String(settings.rendimientoKmKwh));
   const [totalKm, setTotalKm] = useState(String(settings.totalKm));
 
   const capacidad =
@@ -997,8 +980,6 @@ function SettingsForm({
       ...settings,
       modelo,
       capacidadBateria: capacidad,
-      tipoCargador,
-      rendimientoKmKwh: parseFloat(rendimientoKmKwh) || 0,
       totalKm: parseInt(totalKm) || 0,
     });
   };
@@ -1047,16 +1028,6 @@ function SettingsForm({
         </div>
       )}
 
-      <div>
-        <label className="mb-1 block text-xs font-medium text-white/50">Tipo de cargador habitual</label>
-        <select value={tipoCargador} onChange={(e) => setTipoCargador(e.target.value as VehicleSettings["tipoCargador"])}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
-          {Object.entries(CARGADOR_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      </div>
-      <InputField label="Rendimiento eléctrico (km/kWh)" type="number" step="0.1" value={rendimientoKmKwh} onChange={setRendimientoKmKwh} required />
       <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />
 
       <div className="flex gap-2 pt-2">
@@ -1072,7 +1043,7 @@ function SettingsForm({
         <button
           type="button"
           onClick={() => {
-            if (confirm("¿Seguro que quieres borrar todos los datos?\n\nEsto eliminará:\n• Registros de gasolina\n• Cargas eléctricas\n• Mantenimiento\n• Tickets\n\nLa configuración del vehículo NO se borrará.")) {
+            if (confirm("¿Seguro que quieres borrar todos los datos?\n\nEsto eliminará:\n• Registros de gasolina\n• Mantenimiento\n• Tickets\n\nLa configuración del vehículo NO se borrará.")) {
               onReset?.();
             }
           }}

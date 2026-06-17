@@ -343,11 +343,13 @@ async function updatePeriodoElectrico(
 ): Promise<boolean> {
   const sb = getSupabaseClient();
   if (!sb) return false;
+  console.log("[BYD Wallet] Actualizando periodo eléctrico:", { id, payload: row });
   const { error } = await sb.from("periodos_electricos").update(row as never).eq("id", id);
   if (error) {
-    console.error("[BYD Wallet] Error al actualizar periodo eléctrico:", error.message);
+    console.error("[BYD Wallet] Error al actualizar periodo eléctrico:", { id, payload: row, error: error.message });
     return false;
   }
+  console.log("[BYD Wallet] Periodo eléctrico actualizado correctamente (id:", id, ")");
   return true;
 }
 

@@ -20,9 +20,57 @@ function formatNumber(value, decimals = 2) {
   });
 }
 
+function normalizeDate(fecha) {
+  if (!fecha) return null;
+  const s = String(fecha).trim();
+
+  // YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    const date = new Date(y, m, d);
+    if (date.getFullYear() === y && date.getMonth() === m && date.getDate() === d) {
+      return date;
+    }
+    return null;
+  }
+
+  // DD/MM/YY
+  const dmy2Match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (dmy2Match) {
+    const day = parseInt(dmy2Match[1], 10);
+    const month = parseInt(dmy2Match[2], 10) - 1;
+    let year = parseInt(dmy2Match[3], 10);
+    year += year >= 50 ? 1900 : 2000;
+    const date = new Date(year, month, day);
+    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+      return date;
+    }
+    return null;
+  }
+
+  // DD/MM/YYYY
+  const dmy4Match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy4Match) {
+    const day = parseInt(dmy4Match[1], 10);
+    const month = parseInt(dmy4Match[2], 10) - 1;
+    const year = parseInt(dmy4Match[3], 10);
+    const date = new Date(year, month, day);
+    if (date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+      return date;
+    }
+    return null;
+  }
+
+  return null;
+}
+
 function formatDate(isoString) {
   if (!isoString) return "—";
-  const d = new Date(isoString);
+  const d = normalizeDate(isoString);
+  if (!d) return "—";
   return d.toLocaleDateString("es-MX", {
     day: "2-digit",
     month: "2-digit",

@@ -140,64 +140,102 @@ function initializeData(): void {
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
-function formatFechaMX(fecha: string | null | undefined, fecha_hora: string | null | undefined): string {
-  // Convert DD/MM/YY to DD/MM/YYYY. Falls back to fecha_hora if fecha is empty.
-  const f = fecha?.trim();
-  const fh = fecha_hora?.trim();
 
-  if (f) {
-    const match = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-    if (match) {
-      const day = match[1].padStart(2, "0");
-      const month = match[2].padStart(2, "0");
-      let year = parseInt(match[3], 10);
-      year += year >= 50 ? 1900 : 2000;
-      return `${day}/${month}/${year}`;
+/**
+ * Normaliza una fecha string a un objeto Date usando parseo manual.
+ * SOPORTA:
+ *   YYYY-MM-DD         → 2026-03-29
+ *   YYYY-MM-DDTHH:mm:ss → 2026-03-29T17:48:00
+ *   DD/MM/YY           → 29/03/26
+ *   DD/MM/YYYY         → 29/03/2026
+ * NUNCA usa new Date(string) sobre strings ambiguos.
+ * Devuelve null si la fecha es inválida.
+ */
+function normalizeDate(fecha: string | null | undefined): Date | null {
+  if (!fecha) return null;
+  const s = fecha.trim();
+
+  // YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    const date = new Date(y, m, d);
+    // Validate: the constructor won't throw but may wrap; check components
+    if (
+      date.getFullYear() === y &&
+      date.getMonth() === m &&
+      date.getDate() === d
+    ) {
+      return date;
     }
-    return f;
+    return null;
   }
 
-  if (fh) {
-    // fecha_hora could be ISO like "2026-03-29T17:48:00" — extract date part
-    const d = new Date(fh);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString("es-MX", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-    }
-    return fh;
-  }
-
-  return "Sin fecha";
-}
-function parseDDMMYY(fecha: string): Date {
-  // Convert DD/MM/YY to proper Date. Examples: 25/08/25 → 25/08/2025
-  const match = fecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-  if (match) {
-    const day = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1; // JS months are 0-indexed
-    let year = parseInt(match[3], 10);
-    // Convert 2-digit year to 4-digit: 25 → 2025, 99 → 1999
+  // DD/MM/YY
+  const dmy2Match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (dmy2Match) {
+    const day = parseInt(dmy2Match[1], 10);
+    const month = parseInt(dmy2Match[2], 10) - 1;
+    let year = parseInt(dmy2Match[3], 10);
     year += year >= 50 ? 1900 : 2000;
-    const d = new Date(year, month, day);
-    return isNaN(d.getTime()) ? new Date() : d;
+    const date = new Date(year, month, day);
+    if (
+      date.getFullYear() === year &&
+      date.getMonth() === month &&
+      date.getDate() === day
+    ) {
+      return date;
+    }
+    return null;
   }
-  return new Date(fecha); // fallback: try native parsing
+
+  // DD/MM/YYYY
+  const dmy4Match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy4Match) {
+    const day = parseInt(dmy4Match[1], 10);
+    const month = parseInt(dmy4Match[2], 10) - 1;
+    const year = parseInt(dmy4Match[3], 10);
+    const date = new Date(year, month, day);
+    if (
+      date.getFullYear() === year &&
+      date.getMonth() === month &&
+      date.getDate() === day
+    ) {
+      return date;
+    }
+    return null;
+  }
+
+  return null;
 }
 
-function toDate(fecha: string): Date {
-  if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(fecha)) {
-    return parseDDMMYY(fecha);
-  }
-  const d = new Date(fecha);
-  return isNaN(d.getTime()) ? new Date() : d;
+/**
+ * Formatea una fecha a DD/MM/YYYY usando México.
+ * Devuelve null si la fecha es inválida.
+ */
+function formatDateOnlyMX(fecha: string | null | undefined): string | null {
+  const d = normalizeDate(fecha);
+  if (!d) return null;
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
-// Safe date comparison for sorting — works with DD/MM/YY and ISO strings
+function formatFechaMX(fecha: string | null | undefined, fecha_hora: string | null | undefined): string {
+  const d = normalizeDate(fecha) || normalizeDate(fecha_hora);
+  if (!d) return "Sin fecha";
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 function dateSortValue(fecha: string): number {
-  return toDate(fecha).getTime();
+  const d = normalizeDate(fecha);
+  return d ? d.getTime() : 0;
 }
 
 function isSameDay(d1: Date, d2: Date): boolean {
@@ -302,7 +340,8 @@ function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRo
   let gastoAnual = 0;
 
   for (const r of recargas) {
-    const d = toDate(r.fecha);
+    const d = normalizeDate(r.fecha);
+    if (!d) continue;
     const costo = Number(r.costo_total_mxn || 0);
     if (isSameDay(d, now)) gastoHoy += costo;
     if (isThisWeek(d, now)) gastoSemanal += costo;
@@ -358,7 +397,8 @@ function formatDecimal(n: number, d: number = 1): string {
 }
 
 function formatDate(iso: string): string {
-  const d = toDate(iso);
+  const d = normalizeDate(iso);
+  if (!d) return "Fecha inválida";
   return d.toLocaleDateString("es-CL", {
     day: "numeric",
     month: "short",
@@ -367,7 +407,8 @@ function formatDate(iso: string): string {
 }
 
 function formatDateShort(iso: string): string {
-  const d = toDate(iso);
+  const d = normalizeDate(iso);
+  if (!d) return "Fecha inválida";
   const now = new Date();
   if (isSameDay(d, now)) return "Hoy";
   const yesterday = new Date(now);
@@ -1183,7 +1224,8 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
 
   const filtered = sortedRows.filter((row) => {
     const dateStr = row.fecha || row.fecha_hora || "";
-    const d = toDate(dateStr);
+    const d = normalizeDate(dateStr);
+    if (!d) return false;
     switch (filter) {
       case "hoy": return isSameDay(d, now);
       case "semana": return isThisWeek(d, now);

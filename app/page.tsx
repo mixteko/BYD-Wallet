@@ -320,13 +320,17 @@ async function insertCargaElectrica(
     .from("cargas_electricas")
     .insert(row as never)
     .select("id")
-    .single();
+    .maybeSingle();
 
   if (error) {
     const isRls = error.code === "42501" || error.message.toLowerCase().includes("row-level security");
+    const isColumn = error.code === "PGRST204" || error.code === "42703"
+      || error.message.toLowerCase().includes("column");
     const userMessage = isRls
       ? "Supabase bloqueó el INSERT por RLS en cargas_electricas. Ejecuta docs/migrations/008_cargas_electricas_rls_write.sql en el SQL Editor."
-      : error.message;
+      : isColumn
+        ? `Columna o campo inválido en cargas_electricas: ${error.message}`
+        : error.message;
     console.error("[BYD Wallet] Error al insertar carga eléctrica:", {
       message: error.message,
       code: error.code,
@@ -399,8 +403,8 @@ function cargaEntryToDbRow(entry: CargaEntry): Omit<CargaElectricaRow, "id" | "c
   return {
     fecha: entry.fecha,
     odometro_km: null,
-    porcentaje_inicio: entry.pctInicial,
-    porcentaje_fin: entry.pctFinal,
+    porcentaje_inicio: Math.round(entry.pctInicial),
+    porcentaje_fin: Math.round(entry.pctFinal),
     kwh_estimados: entry.kwhCargados,
     tarifa_kwh_mxn: entry.costoPorKwh,
     costo_total_mxn: entry.costo,
@@ -5391,9 +5395,8 @@ export default function Home() {
       errorMessage = result.error;
     } else {
       const result = await insertCargaElectrica(row);
-      if (result.error || result.id == null) {
-        errorMessage = result.error
-          || "No se pudo guardar la carga en Supabase. Verifica permisos RLS en cargas_electricas.";
+      if (result.error) {
+        errorMessage = result.error;
       }
     }
 

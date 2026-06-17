@@ -12,18 +12,18 @@ DROP POLICY IF EXISTS "Allow update cargas_electricas" ON public.cargas_electric
 DROP POLICY IF EXISTS "Allow delete cargas_electricas" ON public.cargas_electricas;
 
 CREATE POLICY "Allow read cargas_electricas" ON public.cargas_electricas
-  FOR SELECT TO anon
+  FOR SELECT TO anon, authenticated
   USING (true);
 
 CREATE POLICY "Allow insert cargas_electricas" ON public.cargas_electricas
-  FOR INSERT TO anon
+  FOR INSERT TO anon, authenticated
   WITH CHECK (true);
 
 CREATE POLICY "Allow update cargas_electricas" ON public.cargas_electricas
-  FOR UPDATE TO anon
+  FOR UPDATE TO anon, authenticated
   USING (true)
   WITH CHECK (true);
 
 CREATE POLICY "Allow delete cargas_electricas" ON public.cargas_electricas
-  FOR DELETE TO anon
+  FOR DELETE TO anon, authenticated
   USING (true);

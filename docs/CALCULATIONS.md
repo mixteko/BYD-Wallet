@@ -19,8 +19,8 @@ Dashboard, Reportes y módulos **deben** usar estas funciones; no duplicar fórm
 
 ## Gasto eléctrico BYD — regla de fuente única
 
-**Caso A — Centro de Energía configurado**  
-Existe al menos un recibo CFE con `costo_kwh_mxn > 0` y `kwh_bimestre > 0`.
+**Caso A — Centro de Energía con costo BYD válido (> 0)**  
+Existe al menos un recibo CFE con `costo_kwh_mxn > 0`, `kwh_bimestre > 0` **y** el costo BYD calculado total es mayor a cero.
 
 ```
 Gasto eléctrico BYD = Σ (kWh BYD del periodo × tarifa CFE del periodo)
@@ -29,11 +29,13 @@ Gasto eléctrico BYD = Σ (kWh BYD del periodo × tarifa CFE del periodo)
 - kWh BYD = `kwh_byd_periodo` manual **o** suma de cargas EV dentro del rango del recibo.
 - Las Cargas EV son **eventos**; no se suma `costo_total` de cargas para evitar duplicar el gasto CFE.
 
-**Caso B — Sin Centro de Energía válido**
+**Caso B — Sin Centro de Energía válido o costo BYD = 0**
 
 ```
 Gasto eléctrico BYD = Σ cargas_electricas.costo_total
 ```
+
+Si hay recibos CFE pero ningún costo BYD calculable, **no bloquea** el fallback a Cargas EV.
 
 Función: `calculateElectricCost()`
 

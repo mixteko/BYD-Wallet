@@ -177,12 +177,21 @@ function electricCostFromCharges(cargas: ElectricChargeRow[]): number {
   return roundMoney(cargas.reduce((s, c) => s + c.costo, 0));
 }
 
+/** Centro de Energía con al menos un costo BYD calculable (> 0). Si no, usar cargas EV. */
+function usesCentroEnergiaForCost(
+  periodos: PeriodoElectricoRow[],
+  cargas: ElectricChargeRow[],
+): boolean {
+  if (!hasCentroEnergiaConfigurado(periodos)) return false;
+  return electricCostFromCentro(periodos, cargas) > 0;
+}
+
 /** Gasto eléctrico BYD acumulado — fuente única (Centro de Energía o Cargas EV). */
 export function calculateElectricCost(
   periodos: PeriodoElectricoRow[],
   cargas: ElectricChargeRow[],
 ): { total: number; source: ElectricCostSource } {
-  if (hasCentroEnergiaConfigurado(periodos)) {
+  if (usesCentroEnergiaForCost(periodos, cargas)) {
     return { total: electricCostFromCentro(periodos, cargas), source: "centro_energia" };
   }
   return { total: electricCostFromCharges(cargas), source: "cargas_ev" };
@@ -193,7 +202,7 @@ export function calculateElectricCostAnnual(
   cargas: ElectricChargeRow[],
   year: number = new Date().getFullYear(),
 ): number {
-  if (hasCentroEnergiaConfigurado(periodos)) {
+  if (usesCentroEnergiaForCost(periodos, cargas)) {
     return roundMoney(
       periodos.reduce((s, p) => {
         const fin = normalizeDate(p.fecha_fin);
@@ -210,7 +219,7 @@ export function calculateElectricCostMonthly(
   cargas: ElectricChargeRow[],
   monthKey: string,
 ): number {
-  if (hasCentroEnergiaConfigurado(periodos)) {
+  if (usesCentroEnergiaForCost(periodos, cargas)) {
     return roundMoney(
       periodos.reduce((s, p) => {
         const key = monthKeyFromIso(p.fecha_fin);
@@ -233,7 +242,7 @@ export function calculateElectricCostDaily(
   cargas: ElectricChargeRow[],
   isoDate: string,
 ): number {
-  if (hasCentroEnergiaConfigurado(periodos)) {
+  if (usesCentroEnergiaForCost(periodos, cargas)) {
     return roundMoney(
       periodos.reduce((s, p) => {
         if (p.fecha_fin !== isoDate) return s;
@@ -272,7 +281,7 @@ export function calculateTotalKwhByd(
   periodos: PeriodoElectricoRow[],
   cargas: ElectricChargeRow[],
 ): number {
-  if (hasCentroEnergiaConfigurado(periodos)) {
+  if (usesCentroEnergiaForCost(periodos, cargas)) {
     return Math.round(
       periodos.reduce((s, p) => s + getBydKwhForPeriod(p, cargas).value, 0) * 10,
     ) / 10;

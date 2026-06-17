@@ -43,12 +43,6 @@ interface VehicleSettings {
   modelo: "king-gl" | "king-gs" | "personalizado";
   capacidadBateria: number;
   tipoCargador: "portatil110" | "portatil220" | "wallbox" | "publicaAC" | "publicaDC" | "otro";
-  periodoPago: "bimestral" | "mensual";
-  consumoBaseHogar: number;
-  costoKwhManual: number;
-  costoTotalRecibo: number;
-  fechaInicioPeriodo: string;
-  fechaFinPeriodo: string;
   rendimientoKmL: number;
   rendimientoKmKwh: number;
   precioGasolina: number;
@@ -120,12 +114,6 @@ const DEFAULT_SETTINGS: VehicleSettings = {
   modelo: "king-gl",
   capacidadBateria: 8.3,
   tipoCargador: "wallbox",
-  periodoPago: "bimestral",
-  consumoBaseHogar: 300,
-  costoKwhManual: 180,
-  costoTotalRecibo: 3000,
-  fechaInicioPeriodo: "2026-01-01",
-  fechaFinPeriodo: "2026-02-28",
   rendimientoKmL: 18.5,
   rendimientoKmKwh: 6.2,
   precioGasolina: 1250,
@@ -969,11 +957,6 @@ const MODELO_LABELS: Record<string, string> = {
   personalizado: "Personalizado",
 };
 
-const PERIODO_LABELS: Record<string, string> = {
-  bimestral: "Bimestral (cada 2 meses)",
-  mensual: "Mensual",
-};
-
 const CARGADOR_LABELS: Record<string, string> = {
   portatil110: "Cargador portátil 110V",
   portatil220: "Cargador portátil 220V",
@@ -999,12 +982,6 @@ function SettingsForm({
   const [modelo, setModelo] = useState(settings.modelo);
   const [capacidadBateria, setCapacidadBateria] = useState(String(settings.capacidadBateria));
   const [tipoCargador, setTipoCargador] = useState(settings.tipoCargador);
-  const [periodoPago, setPeriodoPago] = useState(settings.periodoPago);
-  const [consumoBaseHogar, setConsumoBaseHogar] = useState(String(settings.consumoBaseHogar));
-  const [costoKwhManual, setCostoKwhManual] = useState(String(settings.costoKwhManual));
-  const [costoTotalRecibo, setCostoTotalRecibo] = useState(String(settings.costoTotalRecibo));
-  const [fechaInicioPeriodo, setFechaInicioPeriodo] = useState(settings.fechaInicioPeriodo);
-  const [fechaFinPeriodo, setFechaFinPeriodo] = useState(settings.fechaFinPeriodo);
   const [rendimientoKmKwh, setRendimientoKmKwh] = useState(String(settings.rendimientoKmKwh));
   const [totalKm, setTotalKm] = useState(String(settings.totalKm));
 
@@ -1013,20 +990,6 @@ function SettingsForm({
     : modelo === "king-gs" ? parseFloat(capacidadBateria) || 0
     : parseFloat(capacidadBateria) || 0;
 
-  // Compute kWh auto from actual cargas in the current billing period
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const kwhAutoReal = cargas
-    .filter((c) => c.fecha >= settings.fechaInicioPeriodo && c.fecha <= settings.fechaFinPeriodo)
-    .reduce((sum, c) => sum + c.kwhCargados, 0);
-  const kwhAutoRealRounded = Math.round(kwhAutoReal * 10) / 10;
-  const base = parseInt(consumoBaseHogar) || 0;
-  const kwhManual = parseInt(costoKwhManual) || 0;
-  const consumoTotalEstimado = base + kwhAutoRealRounded;
-  const costoAutoEstimado = Math.round(kwhAutoRealRounded * kwhManual);
-  const consumoTotalRecibo = parseInt(costoTotalRecibo) || 0;
-  const kwhTotalRecibo = kwhManual > 0 ? Math.round(consumoTotalRecibo / kwhManual) : 0;
-  const kwhAutoEstimado = Math.max(0, kwhTotalRecibo - base);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
@@ -1034,12 +997,6 @@ function SettingsForm({
       modelo,
       capacidadBateria: capacidad,
       tipoCargador,
-      periodoPago,
-      consumoBaseHogar: parseInt(consumoBaseHogar) || 0,
-      costoKwhManual: parseInt(costoKwhManual) || 0,
-      costoTotalRecibo: parseInt(costoTotalRecibo) || 0,
-      fechaInicioPeriodo,
-      fechaFinPeriodo,
       rendimientoKmKwh: parseFloat(rendimientoKmKwh) || 0,
       totalKm: parseInt(totalKm) || 0,
     });
@@ -1099,59 +1056,16 @@ function SettingsForm({
         </select>
       </div>
 
-      {/* Electricity configuration */}
+      {/* Costo kWh tope para método conservador */}
       <div className="rounded-xl border border-white/5 bg-white/[0.03] p-4">
-        <p className="mb-3 text-xs font-semibold text-white/60">Electricidad CFE México</p>
-
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-white/50">Periodo de pago</label>
-            <select value={periodoPago} onChange={(e) => setPeriodoPago(e.target.value as VehicleSettings["periodoPago"])}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
-              {Object.entries(PERIODO_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <InputField label="Fecha inicio periodo" type="date" value={fechaInicioPeriodo} onChange={setFechaInicioPeriodo} required />
-            <InputField label="Fecha fin periodo" type="date" value={fechaFinPeriodo} onChange={setFechaFinPeriodo} required />
-          </div>
-
-          <InputField label="Consumo base del hogar (kWh por periodo)" type="number" value={consumoBaseHogar} onChange={setConsumoBaseHogar} required />
-
-          <InputField label="Costo por kWh ($)" type="number" value={costoKwhManual} onChange={setCostoKwhManual} required />
-
-          <InputField label="Total del recibo ($)" type="number" value={costoTotalRecibo} onChange={setCostoTotalRecibo} required />
-
-          {/* Auto-calculated summary */}
-          <div className="rounded-xl border border-byd-500/20 bg-byd-500/5 p-3 text-sm">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-byd-400">
-              Resumen del periodo
-            </p>
-            <div className="space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-white/40">kWh cargados al auto</span>
-                <span className="font-semibold text-byd-400">{kwhAutoRealRounded} kWh</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/40">Consumo total estimado</span>
-                <span className="font-semibold text-white">{consumoTotalEstimado} kWh</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/40">Costo estimado del auto</span>
-                <span className="font-semibold text-white">{formatCurrency(costoAutoEstimado)}</span>
-              </div>
-              <div className="border-t border-byd-500/10 pt-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/30">Referencia: recibo / kWh</span>
-                  <span className="text-white/30">{kwhAutoEstimado} kWh (est.)</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <p className="mb-3 text-xs font-semibold text-white/60">Costo de energía (avanzado)</p>
+        <InputField label="Costo por kWh tope ($)" type="number" step="0.01" value={String(settings.costoKwhManualAlto)} onChange={(v) => {
+          const s = { ...settings, costoKwhManualAlto: parseFloat(v) || 0 };
+          onSave(s);
+        }} />
+        <p className="mt-1.5 text-[10px] text-white/30">
+          Usado en el módulo Energía para el cálculo conservador del costo BYD.
+        </p>
       </div>
       <InputField label="Rendimiento eléctrico (km/kWh)" type="number" step="0.1" value={rendimientoKmKwh} onChange={setRendimientoKmKwh} required />
       <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />

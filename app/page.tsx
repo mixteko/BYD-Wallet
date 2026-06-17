@@ -2590,12 +2590,23 @@ function SeccionDashboard({
     .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
     .find((e) => e.estado === "completado");
   const mesesRestantes: number | undefined = (() => {
-    if (!lastCompletado?.fecha) return undefined;
-    const d = new Date(lastCompletado.fecha);
+    if (!proximo || !lastCompletado?.fecha) return undefined;
+    const anterior = BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null;
+    const intervaloMeses = anterior ? proximo.meses - anterior.meses : proximo.meses;
+    const last = new Date(lastCompletado.fecha);
     const now = new Date();
-    return 12 - ((now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth());
+    const monthsElapsed =
+      (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth());
+    return intervaloMeses - monthsElapsed;
   })();
   const status = getMantenimientoStatus(kmRestantes, mesesRestantes);
+  const kmExcedido = !proximo || odometroActual >= proximo.km;
+  const tiempoExcedido = mesesRestantes !== undefined && mesesRestantes <= 0;
+  const servicioVencido = kmExcedido || tiempoExcedido;
+  const estadoServicio = servicioVencido ? "Vencido" : "Al día";
+  const kmRestantesLabel = kmRestantes > 0
+    ? `${kmRestantes.toLocaleString()} km`
+    : kmExcedido ? "0 km" : "—";
   let healthScore = 100;
   if (kmRestantes <= 0)               healthScore -= 35;
   else if (kmRestantes <= 500)        healthScore -= 20;
@@ -2638,9 +2649,20 @@ function SeccionDashboard({
     if (!valid.length) return 0;
     return Math.round((valid.reduce((s, p) => s + Number(p.costo_kwh_mxn), 0) / valid.length) * 100) / 100;
   })();
-  const totalKwhCasa = periodosElectricos.reduce(
-    (s, p) => s + Math.max(0, Number(p.kwh_bimestre || 0) - Number(p.kwh_byd_periodo || 0)), 0
-  );
+  const gastoCasaMensual = (() => {
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    let total = 0;
+    for (const p of periodosElectricos) {
+      const fin = new Date(p.fecha_fin);
+      if (fin.getFullYear() !== thisYear || fin.getMonth() !== thisMonth) continue;
+      const kwhCasa = Math.max(0, Number(p.kwh_bimestre || 0) - Number(p.kwh_byd_periodo || 0));
+      const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
+      if (kwhCasa > 0 && rate > 0) total += kwhCasa * rate;
+    }
+    return Math.round(total * 100) / 100;
+  })();
 
   // ── Spend proportions (for stacked bar) ──────────────────────────────
   const segments = [
@@ -2676,12 +2698,12 @@ function SeccionDashboard({
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">Resumen rápido</p>
               <div className="space-y-1.5 text-[10px]">
                 {[
-                  { icon: "⛽", label: "Costo/km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
-                  { icon: "⚡", label: "Costo/km (eléctrico)", val: avgKwhRate > 0 ? `$${(avgKwhRate * 0.174).toFixed(2)}` : "—" },
-                  { icon: "📊", label: "Costo/km (total)",    val: `$${costoPorKmGlobal.toFixed(2)}` },
-                  { icon: "📅", label: "Gasto diario prom.",  val: formatCurrency(Math.round(totalIntegrado / 365)) },
-                  { icon: "📅", label: "Gasto mensual prom.", val: formatCurrency(Math.round(totalIntegrado / 12)) },
-                  { icon: "📋", label: "Última recarga",      val: ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—" },
+                  { icon: "⛽", label: "Costo por km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
+                  { icon: "⚡", label: "Costo por km (eléctrico)", val: avgKwhRate > 0 ? `$${(avgKwhRate * 0.174).toFixed(2)}` : "—" },
+                  { icon: "📊", label: "Costo por km (total)",    val: `$${costoPorKmGlobal.toFixed(2)}` },
+                  { icon: "📅", label: "Gasto diario promedio",  val: formatCurrency(Math.round(totalIntegrado / 365)) },
+                  { icon: "📅", label: "Gasto mensual promedio", val: formatCurrency(Math.round(totalIntegrado / 12)) },
+                  { icon: "📋", label: "Última carga de gasolina", val: ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—" },
                 ].map((x) => (
                   <div key={x.label} className="flex items-center justify-between gap-1">
                     <span className="flex items-center gap-1 text-white/35 min-w-0">
@@ -2722,9 +2744,9 @@ function SeccionDashboard({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[11px] font-semibold" style={{ color: healthColor }}>{healthLabel}</span>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-medium ${status.color} ${status.borderColor}`}>{status.label}</span>
+                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-medium ${servicioVencido ? "text-red-400 border-red-500/30" : status.color + " " + status.borderColor}`}>{estadoServicio}</span>
               </div>
-              <p className="mt-0.5 text-[9px] text-white/30 truncate">{status.message}</p>
+              <p className="mt-0.5 text-[9px] text-white/30 truncate">{servicioVencido ? "Servicio vencido — agenda lo antes posible" : "Todo bien — sin acciones requeridas"}</p>
             </div>
             <span className="shrink-0 text-white/20 text-xs">→</span>
           </button>
@@ -2737,12 +2759,12 @@ function SeccionDashboard({
               <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
             </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
-              <div><p className="text-white/25 leading-tight">Litros</p><p className="font-semibold text-white/70">{totalLitros.toFixed(0)} L</p></div>
-              <div><p className="text-white/25 leading-tight">Gasto</p><p className="font-semibold text-white/70">{formatCurrency(gastoGasolina)}</p></div>
-              <div><p className="text-white/25 leading-tight">km/L</p><p className="font-semibold text-white/70">{rendimientoKmL}</p></div>
-              <div><p className="text-white/25 leading-tight">Última</p><p className="font-semibold text-white/70 truncate">{ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—"}</p></div>
-              <div><p className="text-white/25 leading-tight">Km/recarga</p><p className="font-semibold text-white/70">{avgKmRecarga > 0 ? avgKmRecarga.toLocaleString() : "—"}</p></div>
-              <div><p className="text-white/25 leading-tight">$/km</p><p className="font-semibold text-white/70">${costoPorKmGasolina.toFixed(2)}</p></div>
+              <div><p className="text-white/25 leading-tight">Total litros</p><p className="font-semibold text-white/70">{totalLitros.toFixed(0)} L</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(gastoGasolina)}</p></div>
+              <div><p className="text-white/25 leading-tight">Rendimiento</p><p className="font-semibold text-white/70">{rendimientoKmL} km/L</p></div>
+              <div><p className="text-white/25 leading-tight">Última carga</p><p className="font-semibold text-white/70 truncate">{ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Promedio km por tanque</p><p className="font-semibold text-white/70">{avgKmRecarga > 0 ? avgKmRecarga.toLocaleString() : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Costo por km</p><p className="font-semibold text-white/70">${costoPorKmGasolina.toFixed(2)}</p></div>
             </div>
           </button>
 
@@ -2754,12 +2776,12 @@ function SeccionDashboard({
               <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
             </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
-              <div><p className="text-white/25 leading-tight">kWh BYD</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
-              <div><p className="text-white/25 leading-tight">Gasto</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
-              <div><p className="text-white/25 leading-tight">$/kWh</p><p className="font-semibold text-white/70">{avgKwhRate > 0 ? `$${avgKwhRate.toFixed(2)}` : "—"}</p></div>
-              <div><p className="text-white/25 leading-tight">Mensual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.mensual)}</p></div>
-              <div><p className="text-white/25 leading-tight">Casa</p><p className="font-semibold text-white/70">{totalKwhCasa > 0 ? `${totalKwhCasa.toFixed(0)} kWh` : "—"}</p></div>
-              <div><p className="text-white/25 leading-tight">Anual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.anual)}</p></div>
+              <div><p className="text-white/25 leading-tight">Consumo BYD (kWh)</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
+              <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{avgKwhRate > 0 ? `$${avgKwhRate.toFixed(2)}/kWh` : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.mensual)}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto mensual de tu vivienda</p><p className="font-semibold text-white/70">{gastoCasaMensual > 0 ? formatCurrency(gastoCasaMensual) : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.anual)}</p></div>
             </div>
           </button>
 
@@ -2771,12 +2793,12 @@ function SeccionDashboard({
               <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
             </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
-              <div><p className="text-white/25 leading-tight">Oficial</p><p className="font-semibold text-white/70">{formatCurrency(totalOficial)}</p></div>
-              <div><p className="text-white/25 leading-tight">Otros</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
-              <div><p className="text-white/25 leading-tight">Servicios</p><p className="font-semibold text-white/70">{mantenimientoList.length}</p></div>
-              <div><p className="text-white/25 leading-tight">Próximo</p><p className={`font-semibold truncate ${status.color}`}>{proximo ? `${proximo.km.toLocaleString()} km` : "Al día"}</p></div>
-              <div><p className="text-white/25 leading-tight">Estado</p><p className={`font-semibold ${status.color}`}>{status.label}</p></div>
-              <div><p className="text-white/25 leading-tight">Km rest.</p><p className={`font-semibold ${status.color}`}>{kmRestantes > 0 ? kmRestantes.toLocaleString() : "Vencido"}</p></div>
+              <div><p className="text-white/25 leading-tight">Servicios oficiales</p><p className="font-semibold text-white/70">{formatCurrency(totalOficial)}</p></div>
+              <div><p className="text-white/25 leading-tight">Otros costos</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
+              <div><p className="text-white/25 leading-tight">Servicios realizados</p><p className="font-semibold text-white/70">{mantenimientoList.length}</p></div>
+              <div><p className="text-white/25 leading-tight">Próximo servicio</p><p className={`font-semibold truncate ${servicioVencido ? "text-red-400" : status.color}`}>{proximo ? `${proximo.km.toLocaleString()} km` : "Completado"}</p></div>
+              <div><p className="text-white/25 leading-tight">Estado</p><p className={`font-semibold ${servicioVencido ? "text-red-400" : estadoServicio === "Al día" ? "text-green-400" : status.color}`}>{estadoServicio}</p></div>
+              <div><p className="text-white/25 leading-tight">Km restantes</p><p className={`font-semibold ${servicioVencido ? "text-red-400" : status.color}`}>{kmRestantesLabel}</p></div>
             </div>
           </button>
 
@@ -2789,9 +2811,9 @@ function SeccionDashboard({
                 <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
               </div>
               <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
-                <div><p className="text-white/25 leading-tight">Total</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
+                <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
                 <div><p className="text-white/25 leading-tight">Registros</p><p className="font-semibold text-white/70">{otrosCostosList.length}</p></div>
-                <div><p className="text-white/25 leading-tight">Prom./reg.</p><p className="font-semibold text-white/70">{otrosCostosList.length > 0 ? formatCurrency(Math.round(totalOtros / otrosCostosList.length)) : "—"}</p></div>
+                <div><p className="text-white/25 leading-tight">Promedio por registro</p><p className="font-semibold text-white/70">{otrosCostosList.length > 0 ? formatCurrency(Math.round(totalOtros / otrosCostosList.length)) : "—"}</p></div>
               </div>
             </button>
           )}
@@ -4987,12 +5009,12 @@ export default function Home() {
 
         {/* 6-chip global KPI row */}
         <section className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-          <KpiChip label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} sub="este año" color="text-byd-400" />
-          <KpiChip label="Costo / km" value={`$${kpis.costoPorKm}`} sub="global" />
-          <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="actual" />
-          <KpiChip label="🩺 Salud" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
-          <KpiChip label="Próx. servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Al día"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km rest.` : statusGlobal.label} color={statusGlobal.color} />
-          <KpiChip label="Elec. mensual" value={formatCurrency(kpisElectricos.mensual)} sub="BYD" color="text-green-400/80" />
+          <KpiChip label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} sub="Total del año" color="text-byd-400" />
+          <KpiChip label="Costo por km" value={`$${kpis.costoPorKm}`} sub="Promedio global" />
+          <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
+          <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
+          <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : statusGlobal.label} color={statusGlobal.color} />
+          <KpiChip label="Costo eléctrico" value={formatCurrency(kpisElectricos.mensual)} sub="Gasto mensual BYD" color="text-green-400/80" />
         </section>
 
         {/* Mobile-only nav tabs */}

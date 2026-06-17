@@ -990,7 +990,7 @@ function SettingsForm({
         <label className="mb-1 block text-xs font-medium text-white/50">Modelo del vehículo</label>
         <select value={modelo} onChange={(e) => setModelo(e.target.value as VehicleSettings["modelo"])}
           className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
-          <option value="king-gl">BYD King GL — 8.3 kWh</option>
+          <option value="king-gl">BYD King GL</option>
           <option value="king-gs">BYD King GS — Configurable</option>
           <option value="personalizado">Personalizado</option>
         </select>
@@ -1000,11 +1000,10 @@ function SettingsForm({
       <div>
         <label className="mb-1 block text-xs font-medium text-white/50">
           Capacidad de batería
-          {modelo === "king-gl" && <span className="ml-1 text-byd-400">(fija: 8.3 kWh)</span>}
         </label>
         {modelo === "king-gl" ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/50">
-            8.3 kWh — BYD King GL
+            BYD King GL
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -1017,14 +1016,13 @@ function SettingsForm({
               className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
               required
             />
-            <span className="text-sm text-white/40">kWh</span>
           </div>
         )}
       </div>
 
       {modelo !== "king-gl" && (
         <div className="rounded-xl border border-byd-500/20 bg-byd-500/5 p-3 text-center text-sm text-byd-400">
-          Capacidad: <strong>{capacidad} kWh</strong>
+          Capacidad: <strong>{capacidad}</strong>
         </div>
       )}
 

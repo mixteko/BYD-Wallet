@@ -131,7 +131,7 @@ interface VehicleSettings {
 
 type Section = "dashboard" | "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes" | "energia";
 
-type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | "recibo" | null;
+type FormModal = "gasolina" | "carga" | "mantenimiento" | "settings" | "recibo" | null;
 
 type HistoryPeriodFilter = "hoy" | "semana" | "mes" | "ano";
 type HistoryCategoryFilter = "todos" | "gasolina" | "electricidad" | "mantenimiento" | "otros" | "cfe";
@@ -153,12 +153,137 @@ interface TicketEntry {
   id: string;
   fecha: string;
   titulo: string;
-  categoria: "gasolina" | "carga" | "mantenimiento" | "otro";
+  categoria: TicketCategoria;
   proveedor: string;
   monto: number;
+  odometro?: number | null;
+  observaciones?: string | null;
   imageBase64: string;
+  /** Reservado para OCR — texto crudo extraído */
   ocrText: string | null;
+  /** @deprecated Preferir `estado` */
   ocrProcesado: boolean;
+  estado: TicketEstado;
+  /** Reservado: vínculo con gasolina, carga, mantenimiento, CFE, etc. */
+  vinculadoA?: TicketVinculo | null;
+  /** Reservado: metadatos OCR futuros sin implementar procesamiento */
+  ocrMeta?: TicketOcrMeta | null;
+}
+
+type TicketEstado = "ocr_pendiente" | "verificado" | "vinculado";
+
+type TicketCategoria =
+  | "gasolina"
+  | "recarga_ev_publica"
+  | "recibo_cfe"
+  | "mantenimiento_oficial"
+  | "refacciones"
+  | "llantas"
+  | "alineacion_balanceo"
+  | "accesorios"
+  | "seguro"
+  | "tenencia_refrendo"
+  | "casetas"
+  | "estacionamiento"
+  | "lavado_detallado"
+  | "garantia"
+  | "multas"
+  | "otro";
+
+interface TicketVinculo {
+  tipo: "gasolina" | "carga" | "mantenimiento" | "cfe" | "otro";
+  id: string;
+  label?: string;
+}
+
+/** Estructura preparada para OCR futuro — sin procesamiento activo */
+interface TicketOcrMeta {
+  provider?: string | null;
+  confidence?: number | null;
+  extractedFields?: {
+    monto?: number | null;
+    fecha?: string | null;
+    proveedor?: string | null;
+    odometro?: number | null;
+    titulo?: string | null;
+  } | null;
+  processedAt?: string | null;
+  rawText?: string | null;
+}
+
+const TICKET_CATEGORIAS: { id: TicketCategoria; label: string; icon: string }[] = [
+  { id: "gasolina", label: "Gasolina", icon: "⛽" },
+  { id: "recarga_ev_publica", label: "Recarga EV pública", icon: "⚡" },
+  { id: "recibo_cfe", label: "Recibo CFE", icon: "💡" },
+  { id: "mantenimiento_oficial", label: "Mantenimiento oficial", icon: "🔧" },
+  { id: "refacciones", label: "Refacciones", icon: "🛠" },
+  { id: "llantas", label: "Llantas", icon: "🛞" },
+  { id: "alineacion_balanceo", label: "Alineación y balanceo", icon: "⚙️" },
+  { id: "accesorios", label: "Accesorios", icon: "📦" },
+  { id: "seguro", label: "Seguro", icon: "🛡" },
+  { id: "tenencia_refrendo", label: "Tenencia / Refrendo", icon: "📋" },
+  { id: "casetas", label: "Casetas", icon: "🛣" },
+  { id: "estacionamiento", label: "Estacionamiento", icon: "🅿️" },
+  { id: "lavado_detallado", label: "Lavado / Detallado", icon: "🧽" },
+  { id: "garantia", label: "Garantía", icon: "✅" },
+  { id: "multas", label: "Multas", icon: "🚨" },
+  { id: "otro", label: "Otro", icon: "📄" },
+];
+
+function normalizeTicketCategoria(raw: string | undefined): TicketCategoria {
+  const legacy: Record<string, TicketCategoria> = {
+    carga: "recarga_ev_publica",
+    mantenimiento: "mantenimiento_oficial",
+  };
+  if (raw && legacy[raw]) return legacy[raw];
+  const found = TICKET_CATEGORIAS.find((c) => c.id === raw);
+  return found ? found.id : "otro";
+}
+
+function normalizeTicketEstado(entry: Partial<TicketEntry>): TicketEstado {
+  if (entry.vinculadoA) return "vinculado";
+  if (entry.estado === "verificado" || entry.estado === "vinculado" || entry.estado === "ocr_pendiente") {
+    return entry.estado;
+  }
+  if (entry.ocrProcesado) return "verificado";
+  return "ocr_pendiente";
+}
+
+function normalizeTicket(entry: Partial<TicketEntry> & { id: string; imageBase64: string }): TicketEntry {
+  return {
+    id: entry.id,
+    fecha: entry.fecha ?? new Date().toISOString().split("T")[0],
+    titulo: entry.titulo ?? "",
+    categoria: normalizeTicketCategoria(entry.categoria),
+    proveedor: entry.proveedor ?? "",
+    monto: entry.monto ?? 0,
+    odometro: entry.odometro ?? null,
+    observaciones: entry.observaciones ?? null,
+    imageBase64: entry.imageBase64,
+    ocrText: entry.ocrText ?? null,
+    ocrProcesado: entry.ocrProcesado ?? false,
+    estado: normalizeTicketEstado(entry),
+    vinculadoA: entry.vinculadoA ?? null,
+    ocrMeta: entry.ocrMeta ?? null,
+  };
+}
+
+function getTicketCategoriaLabel(id: TicketCategoria): string {
+  return TICKET_CATEGORIAS.find((c) => c.id === id)?.label ?? "Otro";
+}
+
+function getTicketCategoriaIcon(id: TicketCategoria): string {
+  return TICKET_CATEGORIAS.find((c) => c.id === id)?.icon ?? "📄";
+}
+
+function loadTickets(): TicketEntry[] {
+  return loadData<Partial<TicketEntry>[]>(KEYS.tickets, [])
+    .filter((t): t is Partial<TicketEntry> & { id: string; imageBase64: string } => !!t.id && !!t.imageBase64)
+    .map((t) => normalizeTicket(t));
+}
+
+function saveTickets(tickets: TicketEntry[]): void {
+  saveData(KEYS.tickets, tickets);
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -1222,19 +1347,43 @@ function MantenimientoForm({
   );
 }
 
+function TicketEstadoBadge({ estado }: { estado: TicketEstado }) {
+  const cfg = {
+    ocr_pendiente: { label: "OCR pendiente", className: "bg-amber-500/20 text-amber-400" },
+    verificado: { label: "Verificado", className: "bg-emerald-500/20 text-emerald-400" },
+    vinculado: { label: "Vinculado", className: "bg-blue-500/20 text-blue-400" },
+  }[estado];
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function TicketForm({
   onSave,
   onClose,
+  initialData,
+  isEdit,
 }: {
   onSave: (entry: TicketEntry) => void;
   onClose: () => void;
+  initialData?: TicketEntry | null;
+  isEdit?: boolean;
 }) {
-  const [titulo, setTitulo] = useState("");
-  const [categoria, setCategoria] = useState<TicketEntry["categoria"]>("otro");
-  const [proveedor, setProveedor] = useState("");
-  const [monto, setMonto] = useState("");
-  const [imageBase64, setImageBase64] = useState("");
-  const [preview, setPreview] = useState<string | null>(null);
+  const [titulo, setTitulo] = useState(initialData?.titulo ?? "");
+  const [categoria, setCategoria] = useState<TicketCategoria>(
+    initialData?.categoria ?? "otro",
+  );
+  const [proveedor, setProveedor] = useState(initialData?.proveedor ?? "");
+  const [monto, setMonto] = useState(initialData != null ? String(initialData.monto || "") : "");
+  const [odometro, setOdometro] = useState(
+    initialData?.odometro != null ? String(initialData.odometro) : "",
+  );
+  const [observaciones, setObservaciones] = useState(initialData?.observaciones ?? "");
+  const [estado, setEstado] = useState<TicketEstado>(initialData?.estado ?? "ocr_pendiente");
+  const [imageBase64, setImageBase64] = useState(initialData?.imageBase64 ?? "");
+  const [preview, setPreview] = useState<string | null>(initialData?.imageBase64 ?? null);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1255,40 +1404,79 @@ function TicketForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!imageBase64) return;
-    const entry: TicketEntry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      fecha: new Date().toISOString().split("T")[0],
+    const resolvedEstado: TicketEstado =
+      initialData?.vinculadoA ? "vinculado" : estado;
+    const entry: TicketEntry = normalizeTicket({
+      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
+      fecha: initialData?.fecha ?? new Date().toISOString().split("T")[0],
       titulo,
       categoria,
       proveedor,
-      monto: parseInt(monto) || 0,
+      monto: parseFloat(monto) || 0,
+      odometro: odometro.trim() ? parseInt(odometro, 10) : null,
+      observaciones: observaciones.trim() || null,
       imageBase64,
-      ocrText: null,
-      ocrProcesado: false,
-    };
+      ocrText: initialData?.ocrText ?? null,
+      ocrProcesado: resolvedEstado === "verificado" || resolvedEstado === "vinculado",
+      estado: resolvedEstado,
+      vinculadoA: initialData?.vinculadoA ?? null,
+      ocrMeta: initialData?.ocrMeta ?? null,
+    });
     onSave(entry);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <InputField label="Título" type="text" value={titulo} onChange={setTitulo} placeholder="ej. Carga de gasolina" required />
+      <InputField label="Título" type="text" value={titulo} onChange={setTitulo} placeholder="ej. Recarga gasolina Pemex" required />
       <div>
         <label className="mb-1 block text-xs font-medium text-white/50">Categoría</label>
         <select
           value={categoria}
-          onChange={(e) => setCategoria(e.target.value as TicketEntry["categoria"])}
+          onChange={(e) => setCategoria(e.target.value as TicketCategoria)}
           className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
         >
-          <option value="gasolina">Gasolina</option>
-          <option value="carga">Carga eléctrica</option>
-          <option value="mantenimiento">Mantenimiento</option>
-          <option value="otro">Otro</option>
+          {TICKET_CATEGORIAS.map((c) => (
+            <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+          ))}
         </select>
       </div>
-      <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} placeholder="ej. Copec, EnelX" />
-      <InputField label="Monto ($)" type="number" value={monto} onChange={setMonto} />
+      <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} placeholder="ej. Copec, Enel X, CFE" />
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Monto ($)" type="number" value={monto} onChange={setMonto} />
+        <InputField label="Odómetro (km)" type="number" value={odometro} onChange={setOdometro} placeholder="Opcional" />
+      </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-white/50">Imagen del ticket</label>
+        <label className="mb-1 block text-xs font-medium text-white/50">Observaciones</label>
+        <textarea
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          rows={2}
+          placeholder="Notas adicionales sobre el documento"
+          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
+        />
+      </div>
+      {isEdit && !initialData?.vinculadoA && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-white/50">Estado</label>
+          <select
+            value={estado}
+            onChange={(e) => setEstado(e.target.value as TicketEstado)}
+            className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
+          >
+            <option value="ocr_pendiente">OCR pendiente</option>
+            <option value="verificado">Verificado</option>
+          </select>
+        </div>
+      )}
+      {initialData?.vinculadoA && (
+        <p className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200">
+          Este ticket está vinculado a {initialData.vinculadoA.label ?? initialData.vinculadoA.tipo}. El estado Vinculado se conserva automáticamente.
+        </p>
+      )}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-white/50">
+          Imagen del ticket {isEdit ? "(opcional — deja igual si no cambias)" : ""}
+        </label>
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 bg-white/[0.03] py-6 transition-colors hover:border-byd-500/30 hover:bg-white/[0.06]">
           {preview ? (
             <img src={preview} alt="Vista previa" className="max-h-40 rounded-lg object-contain" />
@@ -1311,7 +1499,7 @@ function TicketForm({
           Cancelar
         </button>
         <button type="submit" disabled={!imageBase64} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
-          Guardar ticket
+          {isEdit ? "Actualizar ticket" : "Guardar ticket"}
         </button>
       </div>
     </form>
@@ -1806,108 +1994,152 @@ function HistoryTable({
 function TicketDetailModal({
   ticket,
   onClose,
+  onEdit,
+  onDelete,
 }: {
   ticket: TicketEntry | null;
   onClose: () => void;
+  onEdit: (ticket: TicketEntry) => void;
+  onDelete: (ticket: TicketEntry) => void;
 }) {
   if (!ticket) return null;
-  const catLabel: Record<string, string> = {
-    gasolina: "Gasolina",
-    carga: "Carga eléctrica",
-    mantenimiento: "Mantenimiento",
-    otro: "Otro",
-  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-lg rounded-xl border border-white/10 bg-[#0d1117] p-3 shadow-2xl sm:p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-white/80">{ticket.titulo}</h3>
-          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-xs font-semibold uppercase tracking-wider text-white/80">{ticket.titulo}</h3>
+            <div className="mt-1"><TicketEstadoBadge estado={ticket.estado} /></div>
+          </div>
+          <button onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
 
-        {/* Image */}
         <div className="mb-4 overflow-hidden rounded-xl bg-white/[0.03]">
           <img src={ticket.imageBase64} alt={ticket.titulo} className="max-h-72 w-full object-contain" />
         </div>
 
-        {/* Data */}
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             <span className="text-white/40">Fecha</span>
             <span className="text-white/80">{formatDate(ticket.fecha)}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             <span className="text-white/40">Categoría</span>
-            <Tag variant={ticket.categoria === "mantenimiento" ? "amber" : "green"}>{catLabel[ticket.categoria]}</Tag>
+            <span className="text-white/80">{getTicketCategoriaIcon(ticket.categoria)} {getTicketCategoriaLabel(ticket.categoria)}</span>
           </div>
           {ticket.proveedor && (
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-white/40">Proveedor</span>
-              <span className="text-white/80">{ticket.proveedor}</span>
+              <span className="text-right text-white/80">{ticket.proveedor}</span>
             </div>
           )}
           {ticket.monto > 0 && (
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-2">
               <span className="text-white/40">Monto</span>
               <span className="font-semibold text-white">{formatCurrency(ticket.monto)}</span>
             </div>
           )}
-          <div className="flex justify-between">
-            <span className="text-white/40">OCR</span>
-            <span className={ticket.ocrProcesado ? "text-emerald-400" : "text-amber-400"}>
-              {ticket.ocrProcesado ? "Procesado" : "Pendiente"}
-            </span>
-          </div>
-          {ticket.ocrText && (
+          {ticket.odometro != null && ticket.odometro > 0 && (
+            <div className="flex justify-between gap-2">
+              <span className="text-white/40">Odómetro</span>
+              <span className="text-white/80">{ticket.odometro.toLocaleString()} km</span>
+            </div>
+          )}
+          {ticket.observaciones && (
+            <div className="rounded-lg bg-white/[0.03] p-2.5">
+              <p className="mb-1 text-[10px] font-medium text-white/30">Observaciones</p>
+              <p className="text-xs text-white/60 whitespace-pre-wrap">{ticket.observaciones}</p>
+            </div>
+          )}
+          {ticket.vinculadoA && (
+            <div className="flex justify-between gap-2">
+              <span className="text-white/40">Vinculado a</span>
+              <span className="text-blue-400">{ticket.vinculadoA.label ?? ticket.vinculadoA.tipo}</span>
+            </div>
+          )}
+          {(ticket.ocrText || ticket.ocrMeta?.rawText) && (
             <div className="mt-2 rounded-lg bg-white/[0.03] p-3">
               <p className="mb-1 text-[11px] font-medium text-white/30">Texto extraído (OCR)</p>
-              <p className="text-xs text-white/60 whitespace-pre-wrap">{ticket.ocrText}</p>
+              <p className="text-xs text-white/60 whitespace-pre-wrap">{ticket.ocrMeta?.rawText ?? ticket.ocrText}</p>
+            </div>
+          )}
+          {ticket.ocrMeta?.extractedFields && (
+            <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2.5">
+              <p className="mb-1 text-[10px] font-medium text-white/30">Campos OCR (reservado)</p>
+              <p className="text-[10px] text-white/40">Estructura preparada para extracción automática futura.</p>
             </div>
           )}
         </div>
 
-        <button onClick={onClose} className="mt-3 w-full rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/10">
-          Cerrar
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => { onClose(); onEdit(ticket); }}
+            className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/10"
+          >
+            Editar
+          </button>
+          <button
+            type="button"
+            onClick={() => { onClose(); onDelete(ticket); }}
+            className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
+          >
+            Eliminar
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
+function TicketsView() {
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
-  const [selected, setSelected] = useState<TicketEntry | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<TicketEntry | null>(null);
+  const [editingTicket, setEditingTicket] = useState<TicketEntry | null>(null);
+  const [deletingTicket, setDeletingTicket] = useState<TicketEntry | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    setTickets(loadData<TicketEntry[]>(KEYS.tickets, []));
+    setTickets(loadTickets());
   }, [refreshKey]);
 
   const sorted = [...tickets].sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("¿Eliminar este ticket?")) return;
-    const updated = tickets.filter((t) => t.id !== id);
-    saveData(KEYS.tickets, updated);
+  const persist = (updated: TicketEntry[]) => {
+    saveTickets(updated);
     setRefreshKey((k) => k + 1);
   };
 
-  const catIcon: Record<string, string> = {
-    gasolina: "⛽",
-    carga: "⚡",
-    mantenimiento: "🔧",
-    otro: "📄",
+  const handleSave = (entry: TicketEntry) => {
+    const existing = tickets.find((t) => t.id === entry.id);
+    const updated = existing
+      ? tickets.map((t) => (t.id === entry.id ? entry : t))
+      : [...tickets, entry];
+    persist(updated);
+    setShowAddForm(false);
+    setEditingTicket(null);
+  };
+
+  const handleDelete = () => {
+    if (!deletingTicket) return;
+    persist(tickets.filter((t) => t.id !== deletingTicket.id));
+    setDeletingTicket(null);
+    setViewingTicket((current) => (current?.id === deletingTicket.id ? null : current));
   };
 
   return (
     <div>
-      <SectionHeader title="Tickets" count={tickets.length} onAdd={onOpenForm} />
+      <SectionHeader title="Tickets" count={tickets.length} onAdd={() => setShowAddForm(true)} />
+
+      <p className="mb-3 text-[10px] text-white/35 leading-relaxed">
+        Gestor documental del vehículo: guarda comprobantes de gasolina, recargas, CFE, mantenimiento, seguros y más.
+      </p>
 
       {sorted.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-white/30">
@@ -1917,44 +2149,63 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
           <p className="text-xs">No hay tickets aún</p>
-          <p className="text-[10px]">Sube la foto de tu primer ticket</p>
+          <p className="text-[10px]">Sube la foto de tu primer comprobante</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {sorted.map((ticket) => (
             <div
               key={ticket.id}
-              onClick={() => setSelected(ticket)}
-              className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all duration-200 hover:border-byd-500/30 hover:shadow-[0_0_20px_-8px_rgba(18,184,160,0.2)]"
+              className="group overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all duration-200 hover:border-byd-500/30 hover:shadow-[0_0_20px_-8px_rgba(18,184,160,0.2)]"
             >
               <div className="relative aspect-[4/3] overflow-hidden bg-white/[0.03]">
                 <img
                   src={ticket.imageBase64}
                   alt={ticket.titulo}
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  className="h-full w-full object-cover"
                 />
-                <button
-                  onClick={(e) => handleDelete(ticket.id, e)}
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-black/50 text-white/50 opacity-0 transition-opacity hover:bg-red-500/60 hover:text-white group-hover:opacity-100"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-                {!ticket.ocrProcesado && (
-                  <span className="absolute bottom-1.5 left-1.5 rounded-full bg-amber-500/20 px-2 py-0.5 text-[9px] font-medium text-amber-400">
-                    OCR pendiente
-                  </span>
-                )}
+                <div className="absolute bottom-1.5 left-1.5">
+                  <TicketEstadoBadge estado={ticket.estado} />
+                </div>
               </div>
               <div className="p-2.5 sm:p-3">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{catIcon[ticket.categoria]}</span>
+                  <span className="text-sm">{getTicketCategoriaIcon(ticket.categoria)}</span>
                   <p className="truncate text-sm font-medium text-white/80">{ticket.titulo}</p>
                 </div>
+                <p className="mt-0.5 truncate text-[10px] text-white/30">{getTicketCategoriaLabel(ticket.categoria)}</p>
                 <div className="mt-1 flex items-center justify-between">
                   <span className="text-[10px] text-white/30">{formatDateShort(ticket.fecha)}</span>
                   {ticket.monto > 0 && <span className="text-xs font-semibold text-white/60">{formatCurrency(ticket.monto)}</span>}
+                </div>
+                {ticket.odometro != null && ticket.odometro > 0 && (
+                  <p className="mt-0.5 text-[9px] text-white/25">{ticket.odometro.toLocaleString()} km</p>
+                )}
+                <div className="mt-2 flex gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewingTicket(ticket)}
+                    className="flex-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                    title="Ver"
+                  >
+                    👁 Ver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTicket(ticket)}
+                    className="flex-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                    title="Editar"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingTicket(ticket)}
+                    className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                    title="Eliminar"
+                  >
+                    🗑
+                  </button>
                 </div>
               </div>
             </div>
@@ -1962,7 +2213,42 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
         </div>
       )}
 
-      <TicketDetailModal ticket={selected} onClose={() => setSelected(null)} />
+      <TicketDetailModal
+        ticket={viewingTicket}
+        onClose={() => setViewingTicket(null)}
+        onEdit={setEditingTicket}
+        onDelete={setDeletingTicket}
+      />
+
+      <Modal isOpen={showAddForm} onClose={() => setShowAddForm(false)} title="Agregar ticket">
+        <TicketForm
+          onSave={handleSave}
+          onClose={() => setShowAddForm(false)}
+        />
+      </Modal>
+
+      <Modal
+        isOpen={editingTicket !== null}
+        onClose={() => setEditingTicket(null)}
+        title="Editar ticket"
+      >
+        {editingTicket && (
+          <TicketForm
+            initialData={editingTicket}
+            isEdit
+            onSave={handleSave}
+            onClose={() => setEditingTicket(null)}
+          />
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={deletingTicket !== null}
+        title="Eliminar ticket"
+        message={`¿Eliminar "${deletingTicket?.titulo}"? Esta acción no se puede deshacer.`}
+        onConfirm={handleDelete}
+        onCancel={() => setDeletingTicket(null)}
+      />
     </div>
   );
 }
@@ -5928,7 +6214,7 @@ export default function Home() {
           )}
 
           {/* ── Tickets ── */}
-          {section === "tickets" && <TicketsView onOpenForm={() => setFormModal("ticket")} />}
+          {section === "tickets" && <TicketsView />}
 
           {/* ── Reportes ── */}
           {section === "reportes" && (
@@ -6201,16 +6487,6 @@ export default function Home() {
         onConfirm={() => { if (deletingOtroCosto) handleDeleteOtroCosto(deletingOtroCosto.id); }}
         onCancel={() => setDeletingOtroCosto(null)}
       />
-
-      <Modal isOpen={formModal === "ticket"} onClose={() => setFormModal(null)} title="Agregar ticket">
-        <TicketForm
-          onSave={(entry) => {
-            handleSave(KEYS.tickets, entry);
-            setFormModal(null);
-          }}
-          onClose={() => setFormModal(null)}
-        />
-      </Modal>
 
       <Modal isOpen={formModal === "settings"} onClose={() => setFormModal(null)} title="Configuración del vehículo">
         <SettingsForm

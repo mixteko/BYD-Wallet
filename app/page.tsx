@@ -366,6 +366,10 @@ async function insertCargaElectrica(
     .single();
 
   if (error) {
+    const isRls = error.code === "42501" || error.message.toLowerCase().includes("row-level security");
+    const userMessage = isRls
+      ? "Supabase bloqueó el INSERT por RLS en cargas_electricas. Ejecuta docs/migrations/008_cargas_electricas_rls_write.sql en el SQL Editor."
+      : error.message;
     console.error("[BYD Wallet] Error al insertar carga eléctrica:", {
       message: error.message,
       code: error.code,
@@ -373,7 +377,7 @@ async function insertCargaElectrica(
       hint: error.hint,
       payload: row,
     });
-    return { id: null, error: error.message };
+    return { id: null, error: userMessage };
   }
 
   const id = (data as { id: number } | null)?.id ?? null;

@@ -518,18 +518,23 @@ function KpiCard({
   color?: string;
   icon?: React.ReactNode;
 }) {
+  const isZero = value === "$0.00" || value === "$0" || value === "0" || value === "$0.0";
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-4 backdrop-blur-xl transition-all duration-300 hover:border-byd-500/30 hover:shadow-[0_0_30px_-8px_rgba(18,184,160,0.25)] sm:p-5">
+    <div className={`relative overflow-hidden rounded-2xl border ${isZero ? "border-white/[0.03]" : "border-white/5"} bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-4 backdrop-blur-xl transition-all duration-300 hover:border-byd-500/30 hover:shadow-[0_0_30px_-8px_rgba(18,184,160,0.25)] sm:p-5`}>
       <div className="flex items-start justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-widest text-white/40 sm:text-xs">
+        <p className={`text-[11px] font-medium uppercase tracking-widest sm:text-xs ${isZero ? "text-white/25" : "text-white/40"}`}>
           {label}
         </p>
-        {icon && <span className="flex items-center justify-center rounded-lg bg-byd-500/10 p-1.5 text-byd-400">{icon}</span>}
+        {icon && (
+          <span className={`flex items-center justify-center rounded-lg p-1.5 ${isZero ? "bg-white/[0.03] text-white/20" : "bg-byd-500/10 text-byd-400"}`}>
+            {icon}
+          </span>
+        )}
       </div>
-      <p className={`mt-1 text-lg font-semibold tracking-tight sm:text-2xl ${color}`}>
+      <p className={`mt-1 text-lg font-semibold tracking-tight sm:text-2xl ${isZero ? "text-white/20" : color}`}>
         {value}
       </p>
-      {sub && <p className="mt-0.5 text-[11px] text-white/30 sm:text-xs">{sub}</p>}
+      {sub && <p className={`mt-0.5 text-[11px] sm:text-xs ${isZero ? "text-white/15" : "text-white/30"}`}>{sub}</p>}
     </div>
   );
 }

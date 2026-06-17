@@ -2003,26 +2003,55 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-function GastoPorDia() {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+function buildGastoPorDia7(
+  gasolinaList: GasolinaEntry[],
+  periodosElectricos: PeriodoElectricoRow[],
+  cargasList: CargaEntry[],
+  mantenimientoRows: DashboardGastoRow[],
+  otrosRows: DashboardGastoRow[],
+): { date: string; label: string; gasto: number }[] {
+  const days: { date: string; label: string; gasto: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const labelRaw = i === 0 ? "Hoy" : d.toLocaleDateString("es-CL", { weekday: "short" });
+    let total = getGastoElectricoByDia(periodosElectricos, cargasList, iso);
+    gasolinaList.forEach((e) => {
+      if (dateIsoFromEntry(e.fecha) === iso) total += e.costo;
+    });
+    mantenimientoRows.forEach((e) => {
+      if (dateIsoFromEntry(e.fecha) === iso) total += e.costo;
+    });
+    otrosRows.forEach((e) => {
+      if (dateIsoFromEntry(e.fecha) === iso) total += e.costo;
+    });
+    days.push({
+      date: iso,
+      label: labelRaw.charAt(0).toUpperCase() + labelRaw.slice(1),
+      gasto: Math.round(total * 100) / 100,
+    });
+  }
+  return days;
+}
 
-  const data = useMemo(() => {
-    const days: { date: string; label: string; gasto: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const iso = d.toISOString().split("T")[0];
-      const label = i === 0 ? "Hoy" : d.toLocaleDateString("es-CL", { weekday: "short" });
-      let total = 0;
-      [...gasolina, ...cargas, ...mantenimiento].forEach((e) => {
-        if (e.fecha === iso) total += e.costo;
-      });
-      days.push({ date: iso, label: label.charAt(0).toUpperCase() + label.slice(1), gasto: total });
-    }
-    return days;
-  }, [gasolina, cargas, mantenimiento]);
+function GastoPorDia({
+  gasolinaList,
+  periodosElectricos,
+  cargasList,
+  mantenimientoRows,
+  otrosRows,
+}: {
+  gasolinaList: GasolinaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
+  mantenimientoRows: DashboardGastoRow[];
+  otrosRows: DashboardGastoRow[];
+}) {
+  const data = useMemo(
+    () => buildGastoPorDia7(gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows),
+    [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows],
+  );
 
   return (
     <ChartCard title="Gasto por día (últimos 7 días)">
@@ -2048,28 +2077,31 @@ function GastoPorDia() {
   );
 }
 
-function GastoPorMes() {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
-
+function GastoPorMes({
+  gasolinaList,
+  periodosElectricos,
+  cargasList,
+  mantenimientoRows,
+  otrosRows,
+}: {
+  gasolinaList: GasolinaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
+  mantenimientoRows: DashboardGastoRow[];
+  otrosRows: DashboardGastoRow[];
+}) {
   const data = useMemo(() => {
-    const map = new Map<string, number>();
-    [...gasolina, ...cargas, ...mantenimiento].forEach((e) => {
-      const m = e.fecha.slice(0, 7);
-      map.set(m, (map.get(m) || 0) + e.costo);
-    });
-    return Array.from(map.entries())
-      .map(([date, gasto]) => {
-        const d = new Date(date + "-01");
-        return { mes: d.toLocaleDateString("es-CL", { month: "short" }), gasto };
-      })
-      .sort((a, b) => {
-        const ma = MONTHS.indexOf(a.mes.charAt(0).toUpperCase() + a.mes.slice(1));
-        const mb = MONTHS.indexOf(b.mes.charAt(0).toUpperCase() + b.mes.slice(1));
-        return ma - mb;
-      });
-  }, [gasolina, cargas, mantenimiento]);
+    return buildDashboardGastoPorMes12(
+      gasolinaList,
+      periodosElectricos,
+      cargasList,
+      mantenimientoRows,
+      otrosRows,
+    ).map((m) => ({
+      mes: m.label,
+      gasto: Math.round((m.gasolina + m.electricidad + m.mantenimiento + m.otros) * 100) / 100,
+    }));
+  }, [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows]);
 
   return (
     <ChartCard title="Gasto por mes">
@@ -2089,22 +2121,27 @@ function GastoPorMes() {
   );
 }
 
-function RendimientoHistorico() {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
-
+function RendimientoHistorico({
+  gasolinaList,
+  rendimientoKmL,
+  rendimientoKmKwh,
+}: {
+  gasolinaList: GasolinaEntry[];
+  rendimientoKmL: number;
+  rendimientoKmKwh: number;
+}) {
   const data = useMemo(() => {
-    const entries = gasolina
+    const entries = gasolinaList
       .filter((e) => e.litros > 0 && e.kilometraje > 0 && e.costo > 0)
       .slice()
       .sort((a, b) => dateSortValue(a.fecha) - dateSortValue(b.fecha))
       .map((e, i) => ({
         n: `#${i + 1}`,
         kmL: Math.round((e.litros > 0 ? (e.kilometraje / e.litros) * 0.1 : 0) * 10) / 10,
-        kmKwh: settings.rendimientoKmKwh,
+        kmKwh: rendimientoKmKwh,
       }));
-    return entries.length > 0 ? entries : [{ n: "#1", kmL: settings.rendimientoKmL, kmKwh: settings.rendimientoKmKwh }];
-  }, [gasolina, settings]);
+    return entries.length > 0 ? entries : [{ n: "#1", kmL: rendimientoKmL, kmKwh: rendimientoKmKwh }];
+  }, [gasolinaList, rendimientoKmL, rendimientoKmKwh]);
 
   return (
     <ChartCard title="Rendimiento histórico">
@@ -2125,33 +2162,22 @@ function RendimientoHistorico() {
   );
 }
 
-function ComparativoGasolinaVsElectricidad() {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
-
+function ComparativoGasolinaVsElectricidad({
+  gasolinaList,
+  periodosElectricos,
+  cargasList,
+}: {
+  gasolinaList: GasolinaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  cargasList: CargaEntry[];
+}) {
   const data = useMemo(() => {
-    const map = new Map<string, { gasolina: number; electricidad: number }>();
-    [
-      ...gasolina.map((e) => ({ mes: e.fecha.slice(0, 7), costo: e.costo, tipo: "gasolina" as const })),
-      ...cargas.map((e) => ({ mes: e.fecha.slice(0, 7), costo: e.costo, tipo: "electricidad" as const })),
-    ].forEach((e) => {
-      if (!map.has(e.mes)) map.set(e.mes, { gasolina: 0, electricidad: 0 });
-      const entry = map.get(e.mes)!;
-      if (e.tipo === "gasolina") entry.gasolina += e.costo;
-      else entry.electricidad += e.costo;
-    });
-    return Array.from(map.entries())
-      .map(([date, values]) => {
-        const d = new Date(date + "-01");
-        return { mes: d.toLocaleDateString("es-CL", { month: "short" }), ...values };
-      })
-      .sort((a, b) => {
-        const ma = MONTHS.indexOf(a.mes.charAt(0).toUpperCase() + a.mes.slice(1));
-        const mb = MONTHS.indexOf(b.mes.charAt(0).toUpperCase() + b.mes.slice(1));
-        return ma - mb;
-      });
-  }, [gasolina, cargas]);
+    return buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, cargasList, [], []).map((m) => ({
+      mes: m.label,
+      gasolina: Math.round(m.gasolina * 100) / 100,
+      electricidad: Math.round(m.electricidad * 100) / 100,
+    }));
+  }, [gasolinaList, periodosElectricos, cargasList]);
 
   return (
     <ChartCard title="Comparativo gasolina vs electricidad">
@@ -2984,18 +3010,85 @@ function costoBydFromPeriodo(p: PeriodoElectricoRow, cargas: CargaEntry[] = []):
   return Math.round(bydInfo.value * rate * 100) / 100;
 }
 
-/** Centro de Energía con tarifa CFE válida → gasto BYD desde recibos; si no, suma directa de Cargas EV. */
+type GastoElectricoFuente = "centro_energia" | "cargas_ev";
+
+/** Recibo CFE con tarifa y consumo válidos → Centro de Energía es la fuente oficial. */
 function hasCentroEnergiaConfigurado(periodos: PeriodoElectricoRow[]): boolean {
-  return periodos.some((p) => Number(p.costo_kwh_mxn) > 0);
+  return periodos.some(
+    (p) => Number(p.costo_kwh_mxn) > 0 && Number(p.kwh_bimestre) > 0,
+  );
+}
+
+function gastoElectricoBydDesdeCentro(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
+  return Math.round(
+    periodos.reduce((s, p) => s + costoBydFromPeriodo(p, cargas), 0) * 100,
+  ) / 100;
+}
+
+function gastoElectricoBydDesdeCargas(cargas: CargaEntry[]): number {
+  return Math.round(cargas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
+}
+
+/** Fuente única de gasto eléctrico BYD para Dashboard, Reportes e Historial. */
+function resolveGastoElectricoByd(
+  periodos: PeriodoElectricoRow[],
+  cargas: CargaEntry[],
+): { total: number; source: GastoElectricoFuente } {
+  if (hasCentroEnergiaConfigurado(periodos)) {
+    return { total: gastoElectricoBydDesdeCentro(periodos, cargas), source: "centro_energia" };
+  }
+  return { total: gastoElectricoBydDesdeCargas(cargas), source: "cargas_ev" };
 }
 
 function getTotalGastoElectricoByd(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
+  return resolveGastoElectricoByd(periodos, cargas).total;
+}
+
+function dateIsoFromEntry(fecha: string): string {
+  const d = normalizeDate(fecha);
+  if (!d) return fecha.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function getGastoElectricoByDia(
+  periodos: PeriodoElectricoRow[],
+  cargas: CargaEntry[],
+  isoDate: string,
+): number {
   if (hasCentroEnergiaConfigurado(periodos)) {
     return Math.round(
-      periodos.reduce((s, p) => s + costoBydFromPeriodo(p, cargas), 0) * 100,
+      periodos.reduce((s, p) => {
+        if (p.fecha_fin !== isoDate) return s;
+        return s + costoBydFromPeriodo(p, cargas);
+      }, 0) * 100,
     ) / 100;
   }
-  return Math.round(cargas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
+  return Math.round(
+    cargas.reduce((s, c) => (dateIsoFromEntry(c.fecha) === isoDate ? s + c.costo : s), 0) * 100,
+  ) / 100;
+}
+
+function getGastoElectricoByMes(
+  periodos: PeriodoElectricoRow[],
+  cargas: CargaEntry[],
+  monthKey: string,
+): number {
+  if (hasCentroEnergiaConfigurado(periodos)) {
+    return Math.round(
+      periodos.reduce((s, p) => {
+        const key = monthKeyFromIso(p.fecha_fin);
+        if (key !== monthKey) return s;
+        return s + costoBydFromPeriodo(p, cargas);
+      }, 0) * 100,
+    ) / 100;
+  }
+  return Math.round(
+    cargas.reduce((s, c) => {
+      const key = monthKeyFromIso(c.fecha);
+      if (key !== monthKey) return s;
+      return s + c.costo;
+    }, 0) * 100,
+  ) / 100;
 }
 
 function getGastoElectricoBydAnual(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
@@ -3133,23 +3226,9 @@ function buildDashboardGastoPorMes12(
     if (m) m.gasolina += e.costo;
   });
 
-  periodosElectricos.forEach((p) => {
-    const costoByd = costoBydFromPeriodo(p, cargasList);
-    if (costoByd <= 0) return;
-    const key = monthKeyFromIso(p.fecha_fin);
-    if (!key) return;
-    const m = find(key);
-    if (m) m.electricidad += costoByd;
+  months.forEach((m) => {
+    m.electricidad = getGastoElectricoByMes(periodosElectricos, cargasList, m.key);
   });
-
-  if (!hasCentroEnergiaConfigurado(periodosElectricos)) {
-    cargasList.forEach((c) => {
-      const key = monthKeyFromIso(c.fecha);
-      if (!key) return;
-      const m = find(key);
-      if (m) m.electricidad += c.costo;
-    });
-  }
 
   mantenimientoRows.forEach((e) => {
     const key = monthKeyFromIso(e.fecha);
@@ -3336,7 +3415,6 @@ function SeccionDashboard({
   totalLitros,
   rendimientoKmL,
   gasolinaList,
-  kpisElectricos,
   periodosElectricos,
   cargasList,
   mantenimientoList,
@@ -3350,7 +3428,6 @@ function SeccionDashboard({
   totalLitros: number;
   rendimientoKmL: number;
   gasolinaList: GasolinaEntry[];
-  kpisElectricos: { total: number; mensual: number; anual: number };
   periodosElectricos: PeriodoElectricoRow[];
   cargasList: CargaEntry[];
   mantenimientoList: MantenimientoEntry[];
@@ -5521,33 +5598,6 @@ export default function Home() {
   // Compute KPIs from Supabase data
   const kpis = useMemo(() => computeKpisFromRecargas(recargas, config), [recargas, config]);
 
-  // Electrical cost KPIs from periodos_electricos
-  const kpisElectricos = useMemo(() => {
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-    let total = 0;
-    let mensual = 0;
-    let anual = 0;
-    for (const p of periodosElectricos) {
-      const kwh = p.kwh_byd_periodo != null ? Number(p.kwh_byd_periodo) : 0;
-      const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
-      if (kwh <= 0 || rate <= 0) continue;
-      const costo = Math.round(kwh * rate * 100) / 100;
-      total += costo;
-      const fin = new Date(p.fecha_fin);
-      if (fin.getFullYear() === thisYear) {
-        anual += costo;
-        if (fin.getMonth() === thisMonth) mensual += costo;
-      }
-    }
-    return {
-      total: Math.round(total * 100) / 100,
-      mensual: Math.round(mensual * 100) / 100,
-      anual: Math.round(anual * 100) / 100,
-    };
-  }, [periodosElectricos]);
-
   // Map recargas to GasolinaEntry-like format for existing components
   // Filter: includes all records whose tipo_combustible starts with "gasolina" (case-insensitive)
   // or where tipo_combustible is null/undefined (legacy data assumed gasolina)
@@ -5584,6 +5634,11 @@ export default function Home() {
     return [...fromDb, ...fromRecargas, ...localOnly]
       .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
   }, [cargasElectricasDb, recargas, settings.rendimientoKmKwh, kpiVersion]);
+
+  const gastoElectricoResuelto = useMemo(
+    () => resolveGastoElectricoByd(periodosElectricos, cargasList),
+    [periodosElectricos, cargasList],
+  );
 
   const mantenimientoList = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, [])
     .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
@@ -5646,13 +5701,7 @@ export default function Home() {
     healthScoreGlobal >= 80 ? "#a3e635" :
     healthScoreGlobal >= 70 ? "#fbbf24" : "#f87171";
 
-  const gastoBydMensualGlobal = centroEnergiaResumen?.costoByd ?? null;
   const tarifaKwhGlobal = centroEnergiaResumen?.costoKwh ?? null;
-  const gastoElectricoAcumuladoGlobal = useMemo(
-    () => getTotalGastoElectricoByd(periodosElectricos, cargasList),
-    [periodosElectricos, cargasList],
-  );
-  const usaCentroEnergiaParaDashboard = hasCentroEnergiaConfigurado(periodosElectricos);
 
   const cargasModuloResumen = useMemo(() => {
     const dbCargas = cargasList.filter((e) => isCargaSupabaseDb(e.id));
@@ -5940,15 +5989,13 @@ export default function Home() {
           <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
           <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
           <KpiChip
-            label="Costo eléctrico"
-            value={
-              usaCentroEnergiaParaDashboard
-                ? (gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : formatCurrency(gastoElectricoAcumuladoGlobal))
-                : formatCurrency(gastoElectricoAcumuladoGlobal)
-            }
+            label="Gasto eléctrico"
+            value={formatCurrency(gastoElectricoResuelto.total)}
             sub={
-              usaCentroEnergiaParaDashboard
-                ? (tarifaKwhGlobal != null ? `Centro Energía · $${tarifaKwhGlobal.toFixed(4)}/kWh` : "Centro Energía · acumulado BYD")
+              gastoElectricoResuelto.source === "centro_energia"
+                ? (tarifaKwhGlobal != null
+                  ? `Centro de Energía · $${tarifaKwhGlobal.toFixed(4)}/kWh`
+                  : "Centro de Energía · acumulado BYD")
                 : "Suma de cargas EV registradas"
             }
             color="text-green-400/80"
@@ -5972,7 +6019,6 @@ export default function Home() {
               totalLitros={gasolinaList.reduce((s, e) => s + e.litros, 0)}
               rendimientoKmL={kpis.rendimientoKmL}
               gasolinaList={gasolinaList}
-              kpisElectricos={kpisElectricos}
               periodosElectricos={periodosElectricos}
               cargasList={cargasList}
               mantenimientoList={mantenimientoList}
@@ -6083,7 +6129,7 @@ export default function Home() {
                 ))}
               </div>
               <p className="mb-2 text-[9px] text-white/25">
-                {usaCentroEnergiaParaDashboard
+                {gastoElectricoResuelto.source === "centro_energia"
                   ? "Dashboard: gasto eléctrico desde Centro de Energía (recibos CFE). Totales arriba = solo cargas registradas."
                   : "Dashboard: gasto eléctrico = suma de cargas EV (sin Centro de Energía)."}
               </p>
@@ -6198,11 +6244,31 @@ export default function Home() {
                 showComparador
               />
               <div className="grid gap-3 sm:grid-cols-2">
-                <GastoPorDia />
-                <GastoPorMes />
+                <GastoPorDia
+                  gasolinaList={gasolinaList}
+                  periodosElectricos={periodosElectricos}
+                  cargasList={cargasList}
+                  mantenimientoRows={dashboardMantenimientoRows}
+                  otrosRows={dashboardOtrosRows}
+                />
+                <GastoPorMes
+                  gasolinaList={gasolinaList}
+                  periodosElectricos={periodosElectricos}
+                  cargasList={cargasList}
+                  mantenimientoRows={dashboardMantenimientoRows}
+                  otrosRows={dashboardOtrosRows}
+                />
               </div>
-              <RendimientoHistorico />
-              <ComparativoGasolinaVsElectricidad />
+              <RendimientoHistorico
+                gasolinaList={gasolinaList}
+                rendimientoKmL={kpis.rendimientoKmL}
+                rendimientoKmKwh={settings.rendimientoKmKwh}
+              />
+              <ComparativoGasolinaVsElectricidad
+                gasolinaList={gasolinaList}
+                periodosElectricos={periodosElectricos}
+                cargasList={cargasList}
+              />
             </div>
           )}
 

@@ -23,7 +23,6 @@ import {
   buildDailyExpenseLast7Days,
   buildFuelEfficiencyHistory,
   buildEvEfficiencyHistory,
-  buildGlobalFuelEfficiencyHistory,
   mergeEnergyEfficiencyForChart,
   formatCostoPorKm,
   formatTarifaKwh,
@@ -39,6 +38,10 @@ import {
   normalizeTipoCargaEv,
   type VehicleCostInput,
   type DashboardGastoRow,
+  resolveAllMaintenanceGastoRows,
+  resolveAllNormalizedMaintenance,
+  type NormalizedMaintenanceRecord,
+  type MaintenanceSourceRecord,
 } from "@/lib/calculations";
 
 // ── App version ──────────────────────────────────────────────────────────────
@@ -97,6 +100,23 @@ interface MantenimientoEntry {
     nombre: string;
     tipo: string;   // MIME type
     data: string;   // base64 data URL
+  };
+}
+
+function mapMantenimientoEntryToSource(entry: MantenimientoEntry): MaintenanceSourceRecord {
+  return {
+    id: entry.id,
+    fecha: entry.fecha,
+    costo: entry.costo,
+    costoReal: entry.costoReal,
+    costo_estimado: entry.costoEstimado,
+    costoEstimado: entry.costoEstimado,
+    estado: entry.estado,
+    km_programado: entry.kmProgramado,
+    km: entry.km,
+    servicio: entry.servicio,
+    agencia: entry.agencia,
+    notas: entry.notas,
   };
 }
 
@@ -1904,7 +1924,7 @@ function HistoryTable({
   gasolinaList,
   cargasList,
   periodosElectricos,
-  mantenimientoList,
+  normalizedMaintenance,
   otrosCostosList,
   onViewGasolina,
   onViewCarga,
@@ -1914,7 +1934,7 @@ function HistoryTable({
   gasolinaList: GasolinaEntry[];
   cargasList: CargaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
-  mantenimientoList: MantenimientoEntry[];
+  normalizedMaintenance: NormalizedMaintenanceRecord[];
   otrosCostosList: OtroCostoEntry[];
   onViewGasolina: (entry: GasolinaEntry) => void;
   onViewCarga: (entry: CargaEntry) => void;
@@ -1976,17 +1996,16 @@ function HistoryTable({
       });
     });
 
-    mantenimientoList.forEach((e) => {
-      if (!e.fecha) return;
+    normalizedMaintenance.forEach((m) => {
       rows.push({
-        id: `mnt-${e.id}`,
-        fecha: e.fecha,
+        id: `mnt-${m.sourceId}`,
+        fecha: m.date,
         tipo: "Mantenimiento",
-        descripcion: e.servicio || "Servicio oficial",
-        importe: e.costoReal ?? e.costo,
-        observaciones: `${e.km.toLocaleString()} km${e.agencia ? ` · ${e.agencia}` : ""}${e.notas ? ` · ${e.notas}` : ""}`,
+        descripcion: m.label,
+        importe: m.cost,
+        observaciones: m.observaciones,
         category: "mantenimiento",
-        sortKey: dateSortValue(e.fecha),
+        sortKey: dateSortValue(m.date),
         onViewDetail: () => onNavigate("mantenimiento"),
       });
     });
@@ -2007,7 +2026,7 @@ function HistoryTable({
     });
 
     return rows.sort((a, b) => b.sortKey - a.sortKey);
-  }, [gasolinaList, cargasList, periodosElectricos, mantenimientoList, otrosCostosList, onViewGasolina, onViewCarga, onViewCfe, onNavigate]);
+  }, [gasolinaList, cargasList, periodosElectricos, normalizedMaintenance, otrosCostosList, onViewGasolina, onViewCarga, onViewCfe, onNavigate]);
 
   const filtered = allRows.filter((row) => {
     if (categoryFilter !== "todos" && row.category !== categoryFilter) return false;
@@ -2476,14 +2495,12 @@ function GastoPorMes({
   cargasList,
   mantenimientoRows,
   otrosRows,
-  maintenanceRecords,
 }: {
   gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
   cargasList: CargaEntry[];
   mantenimientoRows: DashboardGastoRow[];
   otrosRows: DashboardGastoRow[];
-  maintenanceRecords?: MaintenanceRecordRow[];
 }) {
   const data = useMemo(() => {
     return buildMonthlyExpenseBreakdown12(
@@ -2492,7 +2509,6 @@ function GastoPorMes({
       cargasList,
       mantenimientoRows,
       otrosRows,
-      maintenanceRecords,
     ).map((m) => ({
       mes: m.label,
       gasolina: Math.round(m.gasolina * 100) / 100,
@@ -2500,7 +2516,7 @@ function GastoPorMes({
       mantenimiento: Math.round(m.mantenimiento * 100) / 100,
       otros: Math.round(m.otros * 100) / 100,
     }));
-  }, [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows, maintenanceRecords]);
+  }, [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows]);
   return (
     <ChartCard title="Gasto por mes">
       <ResponsiveContainer width="100%" height={130}>
@@ -2548,14 +2564,12 @@ function RendimientoHistorico({
 }) {
   const fuelPoints = useMemo(() => buildFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
   const evPoints = useMemo(() => buildEvEfficiencyHistory(cargasList), [cargasList]);
-  const globalPoints = useMemo(() => buildGlobalFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
   const data = useMemo(
-    () => mergeEnergyEfficiencyForChart(fuelPoints, evPoints, globalPoints),
-    [fuelPoints, evPoints, globalPoints],
+    () => mergeEnergyEfficiencyForChart(fuelPoints, evPoints),
+    [fuelPoints, evPoints],
   );
   const hasGasolina = fuelPoints.length > 0;
   const hasElectricidad = evPoints.length > 0;
-  const hasGlobal = globalPoints.length > 0;
 
   if (!hasGasolina) {
     return (
@@ -2599,9 +2613,6 @@ function RendimientoHistorico({
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
             formatter={(value: unknown, name: unknown) => {
               if (value == null || value === "") return null;
-              if (name === "Km/L global") {
-                return [String(value), "Km/L global — km totales por litro acumulado"];
-              }
               return [String(value), String(name)];
             }}
           />
@@ -2616,19 +2627,6 @@ function RendimientoHistorico({
             connectNulls={false}
             name="Km/L gasolina"
           />
-          {hasGlobal && (
-            <Line
-              yAxisId="gasolina"
-              type="monotone"
-              dataKey="kmLGlobal"
-              stroke="#34d399"
-              strokeWidth={1.5}
-              strokeDasharray="4 3"
-              dot={{ r: 2, fill: "#34d399" }}
-              connectNulls={false}
-              name="Km/L global"
-            />
-          )}
           {hasElectricidad && (
             <Line
               yAxisId="electrico"
@@ -2894,7 +2892,7 @@ function EficienciaCostosPanel({
                 ? "Faltan registros para calcular"
                 : `${stats.eficienciaGlobal} km/L`
             }
-            helpText="Km recorridos por litro de gasolina, con apoyo eléctrico."
+            helpText="Km totales recorridos ÷ litros totales de gasolina. Incluye apoyo eléctrico."
           />
         </div>
 
@@ -5912,17 +5910,19 @@ export default function Home() {
     [gasolinaList],
   );
 
+  const mantenimientoLocalSources = useMemo(
+    () => mantenimientoList.map(mapMantenimientoEntryToSource),
+    [mantenimientoList, kpiVersion],
+  );
+
+  const normalizedMaintenance = useMemo(
+    () => resolveAllNormalizedMaintenance(maintenanceRecordsDb, mantenimientoLocalSources),
+    [maintenanceRecordsDb, mantenimientoLocalSources],
+  );
+
   const dashboardMantenimientoRows = useMemo((): DashboardGastoRow[] => {
-    if (maintenanceRecordsDb.length > 0) {
-      return maintenanceRecordsDb.map((r) => ({
-        fecha: r.fecha_realizada,
-        costo: Number(r.costo_real),
-      }));
-    }
-    return mantenimientoList
-      .filter((e) => e.fecha)
-      .map((e) => ({ fecha: e.fecha, costo: e.costoReal ?? e.costo }));
-  }, [maintenanceRecordsDb, mantenimientoList, kpiVersion]);
+    return resolveAllMaintenanceGastoRows(maintenanceRecordsDb, mantenimientoLocalSources);
+  }, [maintenanceRecordsDb, mantenimientoLocalSources]);
 
   const dashboardOtrosRows = useMemo((): DashboardGastoRow[] => {
     if (maintenanceExtraDb.length > 0) {
@@ -6548,7 +6548,7 @@ export default function Home() {
               gasolinaList={gasolinaList}
               cargasList={cargasList}
               periodosElectricos={periodosElectricos}
-              mantenimientoList={mantenimientoList}
+              normalizedMaintenance={normalizedMaintenance}
               otrosCostosList={otrosCostosList}
               onViewGasolina={(entry) => setGasolinaEnDetalle(entry)}
               onViewCarga={(entry) => setCargaEnDetalle(entry)}
@@ -6584,7 +6584,6 @@ export default function Home() {
                   cargasList={cargasList}
                   mantenimientoRows={dashboardMantenimientoRows}
                   otrosRows={dashboardOtrosRows}
-                  maintenanceRecords={maintenanceRecordsDb}
                 />
               </div>
               <RendimientoHistorico

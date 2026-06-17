@@ -84,57 +84,230 @@ export type DashboardGastoMes = {
   otros: number;
 };
 
-/** Registro de mantenimiento para agregación mensual (Informes). */
-export type MaintenanceGastoRecord = {
+/** Registro crudo de mantenimiento (Supabase, localStorage u otros orígenes). */
+export type MaintenanceSourceRecord = {
+  id?: number | string | null;
   fecha_realizada?: string | null;
   fecha_realizado?: string | null;
   date?: string | null;
+  fecha?: string | null;
   created_at?: string | null;
-  costo_real?: number | null;
-  real_cost?: number | null;
-  cost?: number | null;
-  costo_estimado?: number | null;
+  costo_real?: number | string | null;
+  real_cost?: number | string | null;
+  cost?: number | string | null;
+  costo?: number | string | null;
+  costoReal?: number | string | null;
+  costo_estimado?: number | string | null;
+  costoEstimado?: number | string | null;
+  estimated_cost?: number | string | null;
   estado?: string | null;
+  status?: string | null;
+  completed?: boolean | null;
+  is_done?: boolean | null;
+  km_programado?: number | string | null;
+  kmProgramado?: number | string | null;
+  scheduled_km?: number | string | null;
+  service_km?: number | string | null;
+  km?: number | string | null;
+  odometro_realizado?: number | string | null;
+  servicio?: string | null;
+  notas?: string | null;
+  agencia?: string | null;
 };
 
-export function isMaintenanceRecordRealizado(estado: string | null | undefined): boolean {
-  if (!estado?.trim()) return true;
+/** Alias de compatibilidad. */
+export type MaintenanceGastoRecord = MaintenanceSourceRecord;
+
+export type NormalizedMaintenanceRecord = {
+  date: string;
+  cost: number;
+  status: string;
+  serviceKm: number | null;
+  type: "maintenance";
+  sourceId: string;
+  label: string;
+  observaciones: string;
+};
+
+function maintenanceEstadoRaw(record: MaintenanceSourceRecord): string | null {
+  return record.estado?.trim() || record.status?.trim() || null;
+}
+
+function parseMaintenanceNumber(value: unknown): number {
+  if (value == null || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const n = Number(String(value).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function isMaintenanceRecordRealizado(
+  record: MaintenanceSourceRecord | string | null | undefined,
+): boolean {
+  if (typeof record === "object" && record != null) {
+    if (record.is_done === true || record.completed === true) return true;
+    if (record.is_done === false || record.completed === false) return false;
+  }
+  const estado = typeof record === "string" ? record : maintenanceEstadoRaw(record ?? {});
+  if (!estado) return true;
   const e = estado.toLowerCase().trim();
   if (e === "pendiente" || e === "pending" || e === "programado") return false;
-  return e === "completado" || e === "realizado" || e === "completed" || e === "done";
+  return true;
 }
 
-/** Prioriza fecha del servicio; no usa created_at si hay fecha de servicio. */
-export function resolveMaintenanceServiceDate(record: MaintenanceGastoRecord): string | null {
-  const serviceDate =
-    record.fecha_realizada?.trim()
-    || record.fecha_realizado?.trim()
+/** Objeto uniforme para Dashboard, Reportes e Historial. */
+export function normalizeMaintenanceRecord(
+  record: MaintenanceSourceRecord,
+  meta?: { sourceId?: string; label?: string; observaciones?: string },
+): NormalizedMaintenanceRecord | null {
+  if (!isMaintenanceRecordRealizado(record)) return null;
+
+  const status = maintenanceEstadoRaw(record) ?? "realizado";
+
+  const dateRaw =
+    record.fecha_realizado?.trim()
+    || record.fecha?.trim()
     || record.date?.trim()
+    || record.fecha_realizada?.trim()
     || null;
-  return serviceDate;
+  const date = dateRaw
+    || (record.created_at?.trim() ? record.created_at.trim().slice(0, 10) : null);
+  if (!date) return null;
+
+  const costReal = parseMaintenanceNumber(
+    record.costo_real ?? record.real_cost ?? record.cost ?? record.costo ?? record.costoReal,
+  );
+  let cost = costReal;
+  if (cost <= 0) {
+    cost = parseMaintenanceNumber(
+      record.costo_estimado ?? record.estimated_cost ?? record.costoEstimado,
+    );
+  }
+  if (cost <= 0) return null;
+
+  const serviceKmRaw =
+    record.km_programado
+    ?? record.kmProgramado
+    ?? record.service_km
+    ?? record.scheduled_km
+    ?? record.km
+    ?? null;
+  const serviceKmParsed = parseMaintenanceNumber(serviceKmRaw);
+  const serviceKm = serviceKmParsed > 0 ? serviceKmParsed : null;
+
+  const odometer = parseMaintenanceNumber(record.odometro_realizado ?? record.km);
+  const label =
+    meta?.label
+    || record.servicio?.trim()
+    || record.notas?.trim()
+    || (serviceKm ? `Servicio ${serviceKm.toLocaleString()} km` : "Servicio oficial");
+  const observaciones =
+    meta?.observaciones
+    || [
+      odometer > 0 ? `${odometer.toLocaleString()} km` : null,
+      record.agencia?.trim() || null,
+      record.notas?.trim() || null,
+    ].filter(Boolean).join(" · ");
+
+  return {
+    date,
+    cost: roundMoney(cost),
+    status,
+    serviceKm,
+    type: "maintenance",
+    sourceId: meta?.sourceId ?? String(record.id ?? `${date}|${cost}`),
+    label,
+    observaciones,
+  };
 }
 
-export function resolveMaintenanceGastoCost(record: MaintenanceGastoRecord): number {
-  const real = Number(record.costo_real ?? record.real_cost ?? record.cost ?? 0);
-  if (real > 0) return roundMoney(real);
-  const estimado = Number(record.costo_estimado ?? 0);
-  return estimado > 0 ? roundMoney(estimado) : 0;
+function maintenanceDedupeKey(record: NormalizedMaintenanceRecord): string {
+  return `${monthKeyFromIso(record.date)}|${record.cost}|${record.serviceKm ?? ""}`;
+}
+
+function dedupeGastoRows(rows: GastoRow[]): GastoRow[] {
+  const seen = new Set<string>();
+  const out: GastoRow[] = [];
+  for (const r of rows) {
+    if (!r.fecha || r.costo <= 0) continue;
+    const key = `${monthKeyFromIso(r.fecha)}|${roundMoney(r.costo)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ fecha: r.fecha, costo: roundMoney(r.costo) });
+  }
+  return out;
+}
+
+/** Supabase + localStorage → lista normalizada sin duplicados. */
+export function resolveAllNormalizedMaintenance(
+  dbRecords?: MaintenanceSourceRecord[] | null,
+  localRecords?: MaintenanceSourceRecord[] | null,
+): NormalizedMaintenanceRecord[] {
+  const seen = new Set<string>();
+  const out: NormalizedMaintenanceRecord[] = [];
+
+  for (const record of dbRecords ?? []) {
+    const normalized = normalizeMaintenanceRecord(record, {
+      sourceId: record.id != null ? `db-${record.id}` : undefined,
+    });
+    if (!normalized) continue;
+    const key = maintenanceDedupeKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+
+  for (const record of localRecords ?? []) {
+    const normalized = normalizeMaintenanceRecord(record, {
+      sourceId: record.id != null ? `local-${record.id}` : undefined,
+    });
+    if (!normalized) continue;
+    const key = maintenanceDedupeKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+
+  return out;
+}
+
+/** Fuente única de gasto de mantenimiento para Dashboard e Informes. */
+export function resolveAllMaintenanceGastoRows(
+  dbRecords?: MaintenanceSourceRecord[] | null,
+  localRecords?: MaintenanceSourceRecord[] | null,
+): GastoRow[] {
+  return dedupeGastoRows(
+    resolveAllNormalizedMaintenance(dbRecords, localRecords).map((r) => ({
+      fecha: r.date,
+      costo: r.cost,
+    })),
+  );
+}
+
+/** Prioriza fecha del servicio; created_at solo si no hay fecha de servicio y está realizado. */
+export function resolveMaintenanceServiceDate(record: MaintenanceSourceRecord): string | null {
+  return normalizeMaintenanceRecord(record)?.date ?? null;
+}
+
+export function resolveMaintenanceGastoCost(record: MaintenanceSourceRecord): number {
+  return normalizeMaintenanceRecord(record)?.cost ?? 0;
 }
 
 /** Mantenimiento realizado → fila de gasto por mes de servicio. */
 export function mapMaintenanceRecordsToGastoRows(
-  records: MaintenanceGastoRecord[],
+  records: MaintenanceSourceRecord[],
 ): GastoRow[] {
-  return records
-    .filter((r) => isMaintenanceRecordRealizado(r.estado))
-    .map((r) => {
-      const fecha = resolveMaintenanceServiceDate(r);
-      if (!fecha) return null;
-      const costo = resolveMaintenanceGastoCost(r);
-      if (costo <= 0) return null;
-      return { fecha, costo };
-    })
-    .filter((r): r is GastoRow => r !== null);
+  return resolveAllMaintenanceGastoRows(records, []);
+}
+
+/** @deprecated Usar resolveAllMaintenanceGastoRows con fuentes separadas. */
+export function resolveMaintenanceGastoRowsForMonthly(
+  records: MaintenanceSourceRecord[] | undefined,
+  fallbackRows: GastoRow[],
+  localRows?: GastoRow[],
+): GastoRow[] {
+  const fromPrimary = resolveAllMaintenanceGastoRows(records, localRows?.map((r) => ({ fecha: r.fecha, costo: r.costo })));
+  if (fromPrimary.length > 0) return fromPrimary;
+  return dedupeGastoRows(fallbackRows);
 }
 
 // ── Fechas ──────────────────────────────────────────────────────────────────
@@ -528,12 +701,8 @@ export function buildMonthlyExpenseBreakdown12(
   electricCharges: ElectricChargeRow[],
   maintenanceRows: GastoRow[],
   otherCostRows: GastoRow[],
-  maintenanceRecords?: MaintenanceGastoRecord[],
 ): DashboardGastoMes[] {
-  const effectiveMaintenanceRows =
-    maintenanceRecords && maintenanceRecords.length > 0
-      ? mapMaintenanceRecordsToGastoRows(maintenanceRecords)
-      : maintenanceRows;
+  const effectiveMaintenanceRows = dedupeGastoRows(maintenanceRows);
 
   const now = new Date();
   const months: DashboardGastoMes[] = Array.from({ length: 12 }, (_, i) => {

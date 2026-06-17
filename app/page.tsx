@@ -22,7 +22,6 @@ import {
   calculateIndiceEficienciaHibrida,
   buildMonthlyExpenseBreakdown12,
   buildDailyExpenseLast7Days,
-  buildFuelEfficiencyHistory,
   buildEfficiencySeries,
   calculateElectricCostForPeriod,
   formatCostoPorKm,
@@ -2565,16 +2564,17 @@ function RendimientoHistorico({
   cargasList: CargaEntry[];
   rendimientoKmKwh?: number;
 }) {
-  const fuelPoints = useMemo(() => buildFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
-  const data = useMemo(
-    () => buildEfficiencySeries(gasolinaList, cargasList, rendimientoKmKwh),
-    [gasolinaList, cargasList, rendimientoKmKwh],
+  const rendimiento = rendimientoKmKwh && rendimientoKmKwh > 0 ? rendimientoKmKwh : 6.2;
+  const series = useMemo(
+    () => buildEfficiencySeries(gasolinaList, cargasList, rendimiento),
+    [gasolinaList, cargasList, rendimiento],
   );
-  const hasGasolina = fuelPoints.length > 0;
+  const { gasolineSeries, electricSeries, chartData } = series;
+  const hasGasolina = gasolineSeries.length > 0;
   const hasEvChargesWithKwh = cargasList.some((c) => c.kwhCargados > 0);
-  const hasElectricidad = data.some((d) => d.kmKwh != null);
+  const hasElectricidad = electricSeries.length > 0;
 
-  if (!hasGasolina) {
+  if (!hasGasolina && !hasElectricidad) {
     return (
       <ChartCard title="Rendimiento histórico">
         <p className="py-8 text-center text-xs text-white/30">
@@ -2590,7 +2590,7 @@ function RendimientoHistorico({
         <p className="mb-1.5 text-[9px] text-white/30">Faltan cargas EV para calcular km/kWh.</p>
       )}
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={data} margin={{ top: 4, right: hasElectricidad ? 8 : 4, left: -20, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 4, right: hasElectricidad ? 8 : 4, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
           <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
           <YAxis
@@ -2620,16 +2620,18 @@ function RendimientoHistorico({
             }}
           />
           <Legend wrapperStyle={{ paddingTop: 2 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{value}</span>} />
-          <Line
-            yAxisId="gasolina"
-            type="monotone"
-            dataKey="kmL"
-            stroke="#f59e0b"
-            strokeWidth={1.5}
-            dot={{ r: 2, fill: "#f59e0b" }}
-            connectNulls={false}
-            name="Km/L Gasolina"
-          />
+          {hasGasolina && (
+            <Line
+              yAxisId="gasolina"
+              type="monotone"
+              dataKey="kmL"
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              dot={{ r: 2, fill: "#f59e0b" }}
+              connectNulls={false}
+              name="Km/L Gasolina"
+            />
+          )}
           {hasElectricidad && (
             <Line
               yAxisId="electrico"
@@ -2637,9 +2639,9 @@ function RendimientoHistorico({
               dataKey="kmKwh"
               stroke="#0ea5e9"
               strokeWidth={1.5}
-              dot={{ r: 2, fill: "#0ea5e9" }}
-              connectNulls={false}
-              name="Km/kWh eléctrico estimado"
+              dot={{ r: 3, fill: "#0ea5e9" }}
+              connectNulls
+              name="Km/kWh Eléctrico estimado"
             />
           )}
         </LineChart>
@@ -6618,7 +6620,7 @@ export default function Home() {
               <RendimientoHistorico
                 gasolinaList={gasolinaList}
                 cargasList={cargasList}
-                rendimientoKmKwh={settings.rendimientoKmKwh}
+                rendimientoKmKwh={settings.rendimientoKmKwh || 6.2}
               />
               <ComparativoGasolinaVsElectricidad
                 gasolinaList={gasolinaList}

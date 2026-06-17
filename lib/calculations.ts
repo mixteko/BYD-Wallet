@@ -988,11 +988,19 @@ export function buildFuelEfficiencyHistory(fuelRows: FuelRow[]): RefillEfficienc
   return points;
 }
 
+/** Rendimiento km/kWh por defecto del vehículo cuando no hay km EV registrados. */
+export const DEFAULT_RENDIMIENTO_KM_KWH = 6.2;
+
 /** km/kWh por carga EV: km EV obtenidos (o estimados) / kWh cargados. */
 export function buildEvEfficiencyHistory(
   charges: ElectricChargeRow[],
   rendimientoKmKwh?: number,
 ): ChargeEfficiencyPoint[] {
+  const rendimiento =
+    rendimientoKmKwh != null && rendimientoKmKwh > 0
+      ? rendimientoKmKwh
+      : DEFAULT_RENDIMIENTO_KM_KWH;
+
   return [...charges]
     .filter((c) => c.kwhCargados > 0)
     .sort((a, b) => {
@@ -1002,16 +1010,14 @@ export function buildEvEfficiencyHistory(
     })
     .map((c, i) => {
       let kmEv = c.kmEvObtenidos ?? 0;
-      if (kmEv <= 0 && rendimientoKmKwh != null && rendimientoKmKwh > 0) {
-        kmEv = Math.round(c.kwhCargados * rendimientoKmKwh);
+      if (kmEv <= 0) {
+        kmEv = Math.round(c.kwhCargados * rendimiento);
       }
-      if (kmEv <= 0) return null;
       return {
         label: `#${i + 1}`,
         kmKwh: Math.round((kmEv / c.kwhCargados) * 100) / 100,
       };
-    })
-    .filter((p): p is ChargeEfficiencyPoint => p !== null);
+    });
 }
 
 export type EfficiencySeriesPoint = {
@@ -1020,19 +1026,38 @@ export type EfficiencySeriesPoint = {
   kmKwh: number | null;
 };
 
-/** Serie unificada para Rendimiento histórico: Km/L gasolina + Km/kWh eléctrico (sin global ni equivalencias). */
+export type EfficiencySeriesResult = {
+  gasolineSeries: RefillEfficiencyPoint[];
+  electricSeries: ChargeEfficiencyPoint[];
+  chartData: EfficiencySeriesPoint[];
+};
+
+function buildEfficiencyChartData(
+  gasolineSeries: RefillEfficiencyPoint[],
+  electricSeries: ChargeEfficiencyPoint[],
+): EfficiencySeriesPoint[] {
+  const maxLen = Math.max(gasolineSeries.length, electricSeries.length, 0);
+  if (maxLen === 0) return [];
+  return Array.from({ length: maxLen }, (_, i) => ({
+    label: `#${i + 1}`,
+    kmL: gasolineSeries[i]?.kmL ?? null,
+    kmKwh: electricSeries[i]?.kmKwh ?? null,
+  }));
+}
+
+/** Series de rendimiento histórico: gasolina + eléctrico (sin global ni equivalencias). */
 export function buildEfficiencySeries(
   fuelRows: FuelRow[],
   electricCharges: ElectricChargeRow[],
   rendimientoKmKwh?: number,
-): EfficiencySeriesPoint[] {
-  const fuelPoints = buildFuelEfficiencyHistory(fuelRows);
-  const evPoints = buildEvEfficiencyHistory(electricCharges, rendimientoKmKwh);
-  return mergeEnergyEfficiencyForChart(fuelPoints, evPoints).map(({ label, kmL, kmKwh }) => ({
-    label,
-    kmL,
-    kmKwh,
-  }));
+): EfficiencySeriesResult {
+  const gasolineSeries = buildFuelEfficiencyHistory(fuelRows);
+  const electricSeries = buildEvEfficiencyHistory(electricCharges, rendimientoKmKwh);
+  return {
+    gasolineSeries,
+    electricSeries,
+    chartData: buildEfficiencyChartData(gasolineSeries, electricSeries),
+  };
 }
 
 /** Km/L global acumulado: km totales / litros acumulados entre recargas. */

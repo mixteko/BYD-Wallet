@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.8";
+const APP_VERSION = "0.5.2.9";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2610,6 +2610,33 @@ export default function Home() {
   // Compute KPIs from Supabase data
   const kpis = useMemo(() => computeKpisFromRecargas(recargas, config), [recargas, config]);
 
+  // Electrical cost KPIs from periodos_electricos
+  const kpisElectricos = useMemo(() => {
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    let total = 0;
+    let mensual = 0;
+    let anual = 0;
+    for (const p of periodosElectricos) {
+      const kwh = p.kwh_byd_periodo != null ? Number(p.kwh_byd_periodo) : 0;
+      const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
+      if (kwh <= 0 || rate <= 0) continue;
+      const costo = Math.round(kwh * rate * 100) / 100;
+      total += costo;
+      const fin = new Date(p.fecha_fin);
+      if (fin.getFullYear() === thisYear) {
+        anual += costo;
+        if (fin.getMonth() === thisMonth) mensual += costo;
+      }
+    }
+    return {
+      total: Math.round(total * 100) / 100,
+      mensual: Math.round(mensual * 100) / 100,
+      anual: Math.round(anual * 100) / 100,
+    };
+  }, [periodosElectricos]);
+
   // Map recargas to GasolinaEntry-like format for existing components
   // Filter: includes all records whose tipo_combustible starts with "gasolina" (case-insensitive)
   // or where tipo_combustible is null/undefined (legacy data assumed gasolina)
@@ -2772,7 +2799,7 @@ export default function Home() {
         </section>
 
         {/* ═══ KPI ROW 2 ═══ */}
-        <section className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-4">
+        <section className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <KpiCard
             label="Costo por km"
             value={`$${kpis.costoPorKm}`}
@@ -2789,6 +2816,33 @@ export default function Home() {
             icon={<IconRefresh />}
           />
         </section>
+
+        {/* ═══ KPI ROW 3: Eléctrico ═══ */}
+        {periodosElectricos.length > 0 && (
+          <section className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-3">
+            <KpiCard
+              label="Gasto eléctrico mensual"
+              value={formatCurrency(kpisElectricos.mensual)}
+              sub="este mes · BYD"
+              color="text-byd-400"
+              icon={<IconBolt />}
+            />
+            <KpiCard
+              label="Gasto eléctrico anual"
+              value={formatCurrency(kpisElectricos.anual)}
+              sub="este año · BYD"
+              color="text-byd-400"
+              icon={<IconBolt />}
+            />
+            <KpiCard
+              label="Gasto eléctrico total"
+              value={formatCurrency(kpisElectricos.total)}
+              sub="acumulado · BYD"
+              color="text-byd-400"
+              icon={<IconBolt />}
+            />
+          </section>
+        )}
 
         {/* ═══ NAV TABS ═══ */}
         <nav className="mb-5 flex gap-1 overflow-x-auto rounded-2xl border border-white/5 bg-white/[0.03] p-1 sm:mb-6">
@@ -2808,7 +2862,11 @@ export default function Home() {
             <div>
               <SectionHeader title="Historial de carga" count={gasolinaList.length} onAdd={() => setFormModal("gasolina")} />
               <div className="space-y-1">
-                {gasolinaList.map((entry) => (
+                {gasolinaList.map((entry, idx) => {
+                  const prev = gasolinaList[idx + 1];
+                  const isFirst = idx === gasolinaList.length - 1;
+                  const kmDelta = prev ? entry.kilometraje - prev.kilometraje : null;
+                  return (
                   <div
                     key={entry.id}
                     className="flex items-center justify-between rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03] sm:px-4"
@@ -2822,6 +2880,11 @@ export default function Home() {
                         <p className="text-[11px] text-white/30">
                           {formatDateShort(entry.fecha)} · {entry.litros} L · {entry.kilometraje.toLocaleString()} km
                         </p>
+                        {isFirst ? (
+                          <p className="text-[10px] text-white/20">Primera recarga registrada</p>
+                        ) : kmDelta !== null && kmDelta > 0 ? (
+                          <p className="text-[10px] text-byd-400/60">+{kmDelta.toLocaleString()} km desde última recarga</p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -2854,7 +2917,8 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 {gasolinaList.length === 0 && (
                   <p className="py-8 text-center text-sm text-white/30">No hay registros de gasolina</p>
                 )}

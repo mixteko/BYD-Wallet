@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.1.2";
+const APP_VERSION = "0.5.1.3";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1026,6 +1026,27 @@ function SettingsForm({
         </div>
       )}
 
+      {/* Vehicle specs info block */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.03] p-3 text-sm">
+        <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-white/40">
+          Especificaciones
+        </p>
+        <div className="space-y-1 text-white/60">
+          <div className="flex justify-between">
+            <span>Batería</span>
+            <span className="font-medium text-white/80">{capacidad} kWh</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Autonomía EV estimada</span>
+            <span className="font-medium text-white/80">50 km</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Autonomía combinada estimada</span>
+            <span className="font-medium text-white/80">1,175 km</span>
+          </div>
+        </div>
+      </div>
+
       <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />
 
       <div className="flex gap-2 pt-2">
@@ -1875,7 +1896,7 @@ export default function Home() {
                 <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
-            <span className="hidden text-[10px] text-white/30 sm:block">v{APP_VERSION}</span>
+            <span className="hidden text-[10px] text-white/30 sm:block">BYD Wallet · v{APP_VERSION}</span>
             <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-1.5">
               <ProgressRing pct={batteryPct} />
               <div className="text-right">

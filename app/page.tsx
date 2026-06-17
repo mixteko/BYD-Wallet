@@ -1050,6 +1050,50 @@ function ProgressRing({ pct }: { pct: number }) {
   );
 }
 
+// ── Modal documento / entrada (Tickets) ──────────────────────────────────────
+function DocumentEntryModal({
+  isOpen,
+  onClose,
+  title,
+  children,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="relative flex w-[95vw] max-w-[700px] max-h-[85vh] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-3 py-2.5 sm:px-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-white/80">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Modal component ──────────────────────────────────────────────────────────
 function Modal({
   isOpen,
@@ -1426,80 +1470,90 @@ function TicketForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <InputField label="Título" type="text" value={titulo} onChange={setTitulo} placeholder="ej. Recarga gasolina Pemex" required />
-      <div>
-        <label className="mb-1 block text-xs font-medium text-white/50">Categoría</label>
-        <select
-          value={categoria}
-          onChange={(e) => setCategoria(e.target.value as TicketCategoria)}
-          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
-        >
-          {TICKET_CATEGORIAS.map((c) => (
-            <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
-          ))}
-        </select>
-      </div>
-      <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} placeholder="ej. Copec, Enel X, CFE" />
-      <div className="grid grid-cols-2 gap-3">
-        <InputField label="Monto ($)" type="number" value={monto} onChange={setMonto} />
-        <InputField label="Odómetro (km)" type="number" value={odometro} onChange={setOdometro} placeholder="Opcional" />
-      </div>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-white/50">Observaciones</label>
-        <textarea
-          value={observaciones}
-          onChange={(e) => setObservaciones(e.target.value)}
-          rows={2}
-          placeholder="Notas adicionales sobre el documento"
-          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
-        />
-      </div>
-      {isEdit && !initialData?.vinculadoA && (
-        <div>
-          <label className="mb-1 block text-xs font-medium text-white/50">Estado</label>
-          <select
-            value={estado}
-            onChange={(e) => setEstado(e.target.value as TicketEstado)}
-            className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
-          >
-            <option value="ocr_pendiente">OCR pendiente</option>
-            <option value="verificado">Verificado</option>
-          </select>
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5">
+        <InputField label="Título" type="text" value={titulo} onChange={setTitulo} placeholder="ej. Recarga gasolina Pemex" required />
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-white/50">Categoría</label>
+            <select
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value as TicketCategoria)}
+              className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
+            >
+              {TICKET_CATEGORIAS.map((c) => (
+                <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+              ))}
+            </select>
+          </div>
+          <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} placeholder="ej. Copec, Enel X, CFE" />
         </div>
-      )}
-      {initialData?.vinculadoA && (
-        <p className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200">
-          Este ticket está vinculado a {initialData.vinculadoA.label ?? initialData.vinculadoA.tipo}. El estado Vinculado se conserva automáticamente.
-        </p>
-      )}
-      <div>
-        <label className="mb-1 block text-xs font-medium text-white/50">
-          Imagen del ticket {isEdit ? "(opcional — deja igual si no cambias)" : ""}
-        </label>
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 bg-white/[0.03] py-6 transition-colors hover:border-byd-500/30 hover:bg-white/[0.06]">
-          {preview ? (
-            <img src={preview} alt="Vista previa" className="max-h-40 rounded-lg object-contain" />
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-white/40">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              <span className="text-xs">Toca para subir imagen</span>
-              <span className="text-[10px]">PNG, JPG hasta 5 MB</span>
-            </div>
-          )}
-          <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
-        </label>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <InputField label="Monto ($)" type="number" value={monto} onChange={setMonto} />
+          <InputField label="Odómetro (km)" type="number" value={odometro} onChange={setOdometro} placeholder="Opcional" />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-white/50">Observaciones</label>
+          <textarea
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            rows={3}
+            placeholder="Notas adicionales sobre el documento"
+            className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
+          />
+        </div>
+
+        {isEdit && !initialData?.vinculadoA && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-white/50">Estado</label>
+            <select
+              value={estado}
+              onChange={(e) => setEstado(e.target.value as TicketEstado)}
+              className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
+            >
+              <option value="ocr_pendiente">OCR pendiente</option>
+              <option value="verificado">Verificado</option>
+            </select>
+          </div>
+        )}
+        {initialData?.vinculadoA && (
+          <p className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200">
+            Este documento está vinculado a {initialData.vinculadoA.label ?? initialData.vinculadoA.tipo}. El estado Vinculado se conserva automáticamente.
+          </p>
+        )}
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-white/50">
+            Imagen / documento {isEdit ? "(opcional — deja igual si no cambias)" : ""}
+          </label>
+          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 bg-white/[0.03] px-3 py-5 transition-colors hover:border-byd-500/30 hover:bg-white/[0.06]">
+            {preview ? (
+              <img src={preview} alt="Vista previa" className="max-h-36 w-full rounded-lg object-contain" />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-white/40">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                <span className="text-xs">Toca para subir imagen</span>
+                <span className="text-[10px]">PNG, JPG hasta 5 MB</span>
+              </div>
+            )}
+            <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+          </label>
+        </div>
       </div>
-      <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
+
+      <div className="mt-3 flex shrink-0 gap-2 border-t border-white/5 bg-[#0d1117] pt-3">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" disabled={!imageBase64} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
-          {isEdit ? "Actualizar ticket" : "Guardar ticket"}
+        <button type="submit" disabled={!imageBase64} className="flex-1 rounded-lg bg-byd-500 px-3 py-2 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
+          {isEdit ? "Actualizar documento" : "Guardar documento"}
         </button>
       </div>
     </form>
@@ -2135,7 +2189,7 @@ function TicketsView() {
 
   return (
     <div>
-      <SectionHeader title="Tickets" count={tickets.length} onAdd={() => setShowAddForm(true)} />
+      <SectionHeader title="Entradas" count={tickets.length} onAdd={() => setShowAddForm(true)} />
 
       <p className="mb-3 text-[10px] text-white/35 leading-relaxed">
         Gestor documental del vehículo: guarda comprobantes de gasolina, recargas, CFE, mantenimiento, seguros y más.
@@ -2220,17 +2274,17 @@ function TicketsView() {
         onDelete={setDeletingTicket}
       />
 
-      <Modal isOpen={showAddForm} onClose={() => setShowAddForm(false)} title="Agregar ticket">
+      <DocumentEntryModal isOpen={showAddForm} onClose={() => setShowAddForm(false)} title="Agregar documento">
         <TicketForm
           onSave={handleSave}
           onClose={() => setShowAddForm(false)}
         />
-      </Modal>
+      </DocumentEntryModal>
 
-      <Modal
+      <DocumentEntryModal
         isOpen={editingTicket !== null}
         onClose={() => setEditingTicket(null)}
-        title="Editar ticket"
+        title="Editar documento"
       >
         {editingTicket && (
           <TicketForm
@@ -2240,11 +2294,11 @@ function TicketsView() {
             onClose={() => setEditingTicket(null)}
           />
         )}
-      </Modal>
+      </DocumentEntryModal>
 
       <ConfirmDialog
         isOpen={deletingTicket !== null}
-        title="Eliminar ticket"
+        title="Eliminar documento"
         message={`¿Eliminar "${deletingTicket?.titulo}"? Esta acción no se puede deshacer.`}
         onConfirm={handleDelete}
         onCancel={() => setDeletingTicket(null)}
@@ -5332,7 +5386,7 @@ const NAV_ITEMS: { label: string; icon: string; s: Section }[] = [
   { label: "Cargas EV",       icon: "⚡", s: "cargas"        },
   { label: "Mantenimiento",   icon: "🔧", s: "mantenimiento" },
   { label: "Historial",       icon: "📋", s: "historial"     },
-  { label: "Tickets",         icon: "🎫", s: "tickets"       },
+  { label: "Entradas",         icon: "🎫", s: "tickets"       },
   { label: "Reportes",        icon: "📊", s: "reportes"      },
   { label: "Centro Energía",  icon: "⚡", s: "energia"       },
 ];

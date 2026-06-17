@@ -1703,8 +1703,19 @@ function ComparativoGasolinaVsElectricidad() {
 // ── Energía component ────────────────────────────────────────────────────
 function SeccionEnergia() {
   return (
-    <div className="flex items-center justify-center py-16 text-white/30">
-      <p className="text-sm">Próximamente disponible</p>
+    <div className="flex flex-col items-center gap-4 py-16 text-center">
+      <span className="text-3xl">⚡</span>
+      <h2 className="text-lg font-semibold text-white/80">Energía</h2>
+      <p className="text-sm text-white/30">Próximamente disponible</p>
+      <div className="mt-2 text-left text-sm text-white/20">
+        <p className="mb-2 font-medium text-white/30">Este módulo administrará:</p>
+        <ul className="space-y-1">
+          <li>• Recibos CFE</li>
+          <li>• Cargas EV</li>
+          <li>• Consumo Casa vs BYD</li>
+          <li>• Estadísticas energéticas</li>
+        </ul>
+      </div>
     </div>
   );
 }

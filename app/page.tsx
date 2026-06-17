@@ -1731,9 +1731,11 @@ export default function Home() {
   const kpis = useMemo(() => computeKpisFromRecargas(recargas, config), [recargas, config]);
 
   // Map recargas to GasolinaEntry-like format for existing components
+  // Filter: includes all records whose tipo_combustible starts with "gasolina" (case-insensitive)
+  // or where tipo_combustible is null/undefined (legacy data assumed gasolina)
   const gasolinaList = useMemo(() =>
     recargas
-      .filter((r) => r.tipo_combustible === "Gasolina" || !r.tipo_combustible) // assume gasolina unless specified
+      .filter((r) => !r.tipo_combustible || r.tipo_combustible.toLowerCase().startsWith("gasolina"))
       .map((r) => ({
         id: String(r.id),
         fecha: r.fecha,

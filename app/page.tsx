@@ -23,8 +23,8 @@ import {
   buildMonthlyExpenseBreakdown12,
   buildDailyExpenseLast7Days,
   buildFuelEfficiencyHistory,
-  buildEvEfficiencyHistory,
-  mergeEnergyEfficiencyForChart,
+  buildEfficiencySeries,
+  calculateElectricCostForPeriod,
   formatCostoPorKm,
   formatTarifaKwh,
   getCentroEnergiaCostos,
@@ -2559,18 +2559,20 @@ function GastoPorMes({
 function RendimientoHistorico({
   gasolinaList,
   cargasList,
+  rendimientoKmKwh,
 }: {
   gasolinaList: GasolinaEntry[];
   cargasList: CargaEntry[];
+  rendimientoKmKwh?: number;
 }) {
   const fuelPoints = useMemo(() => buildFuelEfficiencyHistory(gasolinaList), [gasolinaList]);
-  const evPoints = useMemo(() => buildEvEfficiencyHistory(cargasList), [cargasList]);
   const data = useMemo(
-    () => mergeEnergyEfficiencyForChart(fuelPoints, evPoints),
-    [fuelPoints, evPoints],
+    () => buildEfficiencySeries(gasolinaList, cargasList, rendimientoKmKwh),
+    [gasolinaList, cargasList, rendimientoKmKwh],
   );
   const hasGasolina = fuelPoints.length > 0;
-  const hasElectricidad = evPoints.length > 0;
+  const hasEvChargesWithKwh = cargasList.some((c) => c.kwhCargados > 0);
+  const hasElectricidad = data.some((d) => d.kmKwh != null);
 
   if (!hasGasolina) {
     return (
@@ -2584,8 +2586,8 @@ function RendimientoHistorico({
 
   return (
     <ChartCard title="Rendimiento histórico">
-      {hasGasolina && !hasElectricidad && (
-        <p className="mb-1.5 text-[9px] text-white/30">Faltan datos EV para calcular km/kWh.</p>
+      {hasGasolina && hasEvChargesWithKwh && !hasElectricidad && (
+        <p className="mb-1.5 text-[9px] text-white/30">Faltan cargas EV para calcular km/kWh.</p>
       )}
       <ResponsiveContainer width="100%" height={130}>
         <LineChart data={data} margin={{ top: 4, right: hasElectricidad ? 8 : 4, left: -20, bottom: 0 }}>
@@ -2637,7 +2639,7 @@ function RendimientoHistorico({
               strokeWidth={1.5}
               dot={{ r: 2, fill: "#0ea5e9" }}
               connectNulls={false}
-              name="Km/kWh Eléctrico"
+              name="Km/kWh eléctrico estimado"
             />
           )}
         </LineChart>
@@ -5073,7 +5075,7 @@ function GraficoHistorico({
   const data = [...periodos].reverse().map((r) => ({
     label: formatDateShort(r.fecha_fin),
     kwh: Number(r.kwh_bimestre) || 0,
-    costo: Number(r.costo_total_mxn) || 0,
+    costo: calculateElectricCostForPeriod(r, cargas),
     promedio: r.costo_kwh_mxn ? Number(r.costo_kwh_mxn) : 0,
     r,
   }));
@@ -5308,7 +5310,7 @@ function SeccionEnergia({
               <div className="flex justify-between">
                 <span className="text-white/40">Costo promedio</span>
                 <span className="font-medium text-white/80">
-                  {detalle.costo_kwh_mxn ? `${Number(detalle.costo_kwh_mxn).toFixed(4)}/kWh` : "—"}
+                  {detalle.costo_kwh_mxn ? formatTarifaKwh(Number(detalle.costo_kwh_mxn)) : "—"}
                 </span>
               </div>
               {detalle.numero_recibo && (
@@ -5373,7 +5375,7 @@ function SeccionEnergia({
                 <div className="flex justify-between">
                   <span className="text-white/40">Costo promedio del recibo</span>
                   <span className="font-medium text-white/80">
-                    {costoKwh > 0 ? `$${costoKwh.toFixed(4)} / kWh` : "—"}
+                    {costoKwh > 0 ? formatTarifaKwh(costoKwh) : "—"}
                   </span>
                 </div>
                 {costoKwh > 0 && (
@@ -5495,7 +5497,7 @@ function SeccionEnergia({
                 <span className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</span>
               </div>
               <p className="mt-0.5 text-[10px] text-white/30">
-                {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh × ${kwhBydRounded} kWh` : "—"}
+                {costoKwh > 0 ? `${formatTarifaKwh(costoKwh)} × ${kwhBydRounded} kWh` : "—"}
               </p>
             </div>
             <div className="rounded-lg bg-amber-500/10 px-3 py-2.5">
@@ -5504,7 +5506,7 @@ function SeccionEnergia({
                 <span className="font-semibold text-white">{formatCurrency(costoCasaPromedio)}</span>
               </div>
               <p className="mt-0.5 text-[10px] text-white/30">
-                {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh × ${kwhCasa} kWh` : "—"}
+                {costoKwh > 0 ? `${formatTarifaKwh(costoKwh)} × ${kwhCasa} kWh` : "—"}
               </p>
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5">
@@ -5529,7 +5531,7 @@ function SeccionEnergia({
               </div>
               {costoMarginalPorKwh > 0 && (
                 <p className="mt-0.5 text-[10px] text-white/30">
-                  {costoMarginalPorKwh.toFixed(2)}/kWh × {kwhBydRounded} kWh
+                  {costoMarginalPorKwh > 0 ? `${formatTarifaKwh(costoMarginalPorKwh)} × ${kwhBydRounded} kWh` : null}
                 </p>
               )}
             </div>
@@ -5602,7 +5604,7 @@ function SeccionEnergia({
                         </span>
                         <span className="text-[11px] text-white/30">{formatCurrency(r.costo_total_mxn)}</span>
                         <span className="text-[10px] text-white/20">
-                          Tarifa {r.tarifa || "1C"} · {r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}
+                          Tarifa {r.tarifa || "1C"} · {r.costo_kwh_mxn ? formatTarifaKwh(Number(r.costo_kwh_mxn)) : "—"}
                         </span>
                       </div>
                       <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px]">
@@ -6616,6 +6618,7 @@ export default function Home() {
               <RendimientoHistorico
                 gasolinaList={gasolinaList}
                 cargasList={cargasList}
+                rendimientoKmKwh={settings.rendimientoKmKwh}
               />
               <ComparativoGasolinaVsElectricidad
                 gasolinaList={gasolinaList}

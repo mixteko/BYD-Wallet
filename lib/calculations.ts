@@ -428,6 +428,23 @@ function costoBydFromPeriodo(p: PeriodoElectricoRow, cargas: ElectricChargeRow[]
   return roundMoney(bydInfo.value * rate);
 }
 
+/** Gasto eléctrico BYD en un periodo CFE: casa (Centro de Energía) + recargas EV externas del rango. */
+export function calculateElectricCostForPeriod(
+  periodo: PeriodoElectricoRow,
+  cargas: ElectricChargeRow[],
+): number {
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const casa = costoBydFromPeriodo(periodo, casaCargas);
+  const externo = roundMoney(
+    cargas.reduce((s, c) => {
+      if (!isCargaEvExterna(c)) return s;
+      if (!cargaEnPeriodoElectrico(c, periodo)) return s;
+      return s + c.costo;
+    }, 0),
+  );
+  return roundMoney(casa + externo);
+}
+
 export function hasCentroEnergiaConfigurado(periodos: PeriodoElectricoRow[]): boolean {
   return periodos.some(
     (p) => Number(p.costo_kwh_mxn) > 0 && Number(p.kwh_bimestre) > 0,
@@ -971,19 +988,51 @@ export function buildFuelEfficiencyHistory(fuelRows: FuelRow[]): RefillEfficienc
   return points;
 }
 
-/** km/kWh por carga EV: km EV obtenidos / kWh cargados. */
-export function buildEvEfficiencyHistory(charges: ElectricChargeRow[]): ChargeEfficiencyPoint[] {
+/** km/kWh por carga EV: km EV obtenidos (o estimados) / kWh cargados. */
+export function buildEvEfficiencyHistory(
+  charges: ElectricChargeRow[],
+  rendimientoKmKwh?: number,
+): ChargeEfficiencyPoint[] {
   return [...charges]
-    .filter((c) => c.kwhCargados > 0 && (c.kmEvObtenidos ?? 0) > 0)
+    .filter((c) => c.kwhCargados > 0)
     .sort((a, b) => {
       const da = normalizeDate(a.fecha)?.getTime() ?? 0;
       const db = normalizeDate(b.fecha)?.getTime() ?? 0;
       return da - db;
     })
-    .map((c, i) => ({
-      label: `#${i + 1}`,
-      kmKwh: Math.round(((c.kmEvObtenidos ?? 0) / c.kwhCargados) * 100) / 100,
-    }));
+    .map((c, i) => {
+      let kmEv = c.kmEvObtenidos ?? 0;
+      if (kmEv <= 0 && rendimientoKmKwh != null && rendimientoKmKwh > 0) {
+        kmEv = Math.round(c.kwhCargados * rendimientoKmKwh);
+      }
+      if (kmEv <= 0) return null;
+      return {
+        label: `#${i + 1}`,
+        kmKwh: Math.round((kmEv / c.kwhCargados) * 100) / 100,
+      };
+    })
+    .filter((p): p is ChargeEfficiencyPoint => p !== null);
+}
+
+export type EfficiencySeriesPoint = {
+  label: string;
+  kmL: number | null;
+  kmKwh: number | null;
+};
+
+/** Serie unificada para Rendimiento histórico: Km/L gasolina + Km/kWh eléctrico (sin global ni equivalencias). */
+export function buildEfficiencySeries(
+  fuelRows: FuelRow[],
+  electricCharges: ElectricChargeRow[],
+  rendimientoKmKwh?: number,
+): EfficiencySeriesPoint[] {
+  const fuelPoints = buildFuelEfficiencyHistory(fuelRows);
+  const evPoints = buildEvEfficiencyHistory(electricCharges, rendimientoKmKwh);
+  return mergeEnergyEfficiencyForChart(fuelPoints, evPoints).map(({ label, kmL, kmKwh }) => ({
+    label,
+    kmL,
+    kmKwh,
+  }));
 }
 
 /** Km/L global acumulado: km totales / litros acumulados entre recargas. */
@@ -1034,7 +1083,7 @@ export function formatCostoPorKm(n: number): string {
 
 export function formatTarifaKwh(rate: number | null | undefined): string {
   if (rate == null || rate <= 0) return "Sin dato";
-  return `$${rate.toFixed(2)}/kWh`;
+  return `$${roundMoney(rate).toFixed(2)}/kWh`;
 }
 
 // ── Alias de compatibilidad (migración desde page.tsx) ──────────────────────

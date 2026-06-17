@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.4.0";
+const APP_VERSION = "0.5.4.1";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2445,177 +2445,165 @@ function SeccionDashboard({
     { label: "Otros costos",    value: totalOtros,     color: "#c084fc" },
   ].filter((s) => s.value > 0);
 
+  // KPI chip helper
+  const chips = [
+    { label: "Gasto total",     value: formatCurrency(totalIntegrado),            color: "text-byd-400",    nav: undefined as Section | undefined },
+    { label: "Costo / km",      value: `$${costoPorKmGlobal.toFixed(2)}`,         color: "text-white/75",   nav: undefined },
+    { label: "Odómetro",        value: `${odometroActual.toLocaleString()} km`,   color: "text-white/75",   nav: undefined },
+    { label: "🩺 Salud",        value: `${healthScore} — ${healthLabel}`,         color: "",                nav: "mantenimiento" as Section },
+    { label: "Próx. servicio",  value: proximo ? `${proximo.km.toLocaleString()} km` : "Al día", color: status.color, nav: "mantenimiento" as Section },
+    { label: "Elec. mensual",   value: formatCurrency(kpisElectricos.mensual),    color: "text-green-400/80", nav: "energia" as Section },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
+    <div className="space-y-3">
+      {/* ── Compact header ── */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-white/80">🏠 Dashboard General</h2>
-          <p className="text-[11px] text-white/30">Centro de control · BYD King</p>
-        </div>
-        <span className="rounded-full border border-white/8 px-2.5 py-1 text-[10px] text-white/30">
-          {odometroActual.toLocaleString()} km registrados
-        </span>
+        <h2 className="text-xs font-semibold text-white/60 uppercase tracking-wider">🏠 Centro de Control · BYD King</h2>
+        <span className="text-[10px] text-white/25">{odometroActual.toLocaleString()} km</span>
       </div>
 
-      {/* ── Top KPIs ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: "Gasto total vehículo", value: formatCurrency(totalIntegrado), color: "text-byd-400", onClick: undefined },
-          { label: "Costo / km global",    value: `$${costoPorKmGlobal.toFixed(2)}`, color: "text-white/80", onClick: undefined },
-          { label: "Odómetro actual",       value: `${odometroActual.toLocaleString()} km`, color: "text-white/80", onClick: undefined },
-          { label: "Próximo servicio",      value: proximo ? `${proximo.km.toLocaleString()} km` : "Completo", color: status.color, onClick: () => onNavigate("mantenimiento") },
-        ].map((k) => (
+      {/* ── 6 KPI chips ── */}
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {chips.map((c) => (
           <button
-            key={k.label}
+            key={c.label}
             type="button"
-            onClick={k.onClick}
-            className={`rounded-xl border border-white/5 bg-white/[0.02] p-3 text-left transition-colors ${k.onClick ? "hover:bg-white/[0.04] cursor-pointer" : "cursor-default"}`}
+            onClick={c.nav ? () => onNavigate(c.nav!) : undefined}
+            className={`rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-2 text-left transition-colors ${c.nav ? "cursor-pointer hover:bg-white/[0.05]" : "cursor-default"}`}
           >
-            <p className="text-[10px] text-white/35">{k.label}</p>
-            <p className={`mt-0.5 text-base font-bold ${k.color}`}>{k.value}</p>
+            <p className="text-[9px] text-white/30 leading-none mb-1">{c.label}</p>
+            <p className={`text-[11px] font-bold leading-none truncate ${c.color || ""}`}
+               style={c.label === "🩺 Salud" ? { color: healthColor } : {}}>
+              {c.value}
+            </p>
           </button>
         ))}
       </div>
 
-      {/* ── Health + Module summaries ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        {/* Health score card */}
-        <button
-          type="button"
-          onClick={() => onNavigate("mantenimiento")}
-          className="rounded-xl border border-white/8 bg-white/[0.02] p-4 text-center transition-colors hover:bg-white/[0.04]"
-        >
-          {(() => {
-            const R = 32; const C = 2 * Math.PI * R;
-            return (
-              <svg width="80" height="80" viewBox="0 0 80 80" className="mx-auto">
-                <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
-                <circle cx="40" cy="40" r={R} fill="none" stroke={healthColor} strokeWidth="7"
-                  strokeLinecap="round" strokeDasharray={C}
-                  strokeDashoffset={C - (healthScore / 100) * C}
-                  transform="rotate(-90 40 40)"
-                  style={{ transition: "stroke-dashoffset 1s ease" }}
-                />
-                <text x="40" y="37" textAnchor="middle" dominantBaseline="middle"
-                  style={{ fontSize: 18, fontWeight: 700, fill: healthColor }}>{healthScore}</text>
-                <text x="40" y="53" textAnchor="middle" dominantBaseline="middle"
-                  style={{ fontSize: 8, fill: "rgba(255,255,255,0.35)" }}>/100</text>
-              </svg>
-            );
-          })()}
-          <p className="mt-1 text-[11px] font-semibold" style={{ color: healthColor }}>{healthLabel}</p>
-          <p className="mt-0.5 text-[9px] text-white/25">🩺 Salud del vehículo</p>
-          <p className="mt-1 text-[9px] text-white/20">{status.message}</p>
-        </button>
+      {/* ── 2-column main body ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
 
-        {/* Gasolina summary */}
-        <button
-          type="button"
-          onClick={() => onNavigate("gasolina")}
-          className="rounded-xl border border-amber-500/15 bg-amber-500/[0.03] p-3 text-left transition-colors hover:bg-amber-500/[0.06]"
-        >
-          <p className="mb-2 text-[10px] font-semibold text-amber-400/80">⛽ Gasolina</p>
-          <div className="space-y-1 text-[10px]">
-            <div className="flex justify-between"><span className="text-white/35">Gasto total</span><span className="font-medium text-white/70">{formatCurrency(gastoGasolina)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Litros cargados</span><span className="font-medium text-white/70">{totalLitros.toFixed(0)} L</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Rendimiento</span><span className="font-medium text-white/70">{rendimientoKmL} km/L</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Costo / km</span><span className="font-medium text-white/70">${costoPorKmGasolina.toFixed(2)}</span></div>
-            {avgKmRecarga > 0 && <div className="flex justify-between"><span className="text-white/35">Km entre recargas</span><span className="font-medium text-white/70">{avgKmRecarga.toLocaleString()}</span></div>}
-            {ultimaRecarga && <div className="flex justify-between"><span className="text-white/35">Última recarga</span><span className="font-medium text-white/70">{formatDateShort(ultimaRecarga.fecha)}</span></div>}
-          </div>
-        </button>
+        {/* ───── LEFT column (2fr) ───── */}
+        <div className="space-y-3">
 
-        {/* Electricidad summary */}
-        <button
-          type="button"
-          onClick={() => onNavigate("energia")}
-          className="rounded-xl border border-green-500/15 bg-green-500/[0.03] p-3 text-left transition-colors hover:bg-green-500/[0.06]"
-        >
-          <p className="mb-2 text-[10px] font-semibold text-green-400/80">⚡ Electricidad BYD</p>
-          <div className="space-y-1 text-[10px]">
-            <div className="flex justify-between"><span className="text-white/35">Gasto total</span><span className="font-medium text-white/70">{formatCurrency(totalElec)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Gasto mensual</span><span className="font-medium text-white/70">{formatCurrency(kpisElectricos.mensual)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Gasto anual</span><span className="font-medium text-white/70">{formatCurrency(kpisElectricos.anual)}</span></div>
-            {totalKwhByd > 0 && <div className="flex justify-between"><span className="text-white/35">kWh BYD</span><span className="font-medium text-white/70">{totalKwhByd.toFixed(0)} kWh</span></div>}
-            {totalKwhCasa > 0 && <div className="flex justify-between"><span className="text-white/35">kWh Casa</span><span className="font-medium text-white/70">{totalKwhCasa.toFixed(0)} kWh</span></div>}
-            {avgKwhRate > 0 && <div className="flex justify-between"><span className="text-white/35">Costo prom. kWh</span><span className="font-medium text-white/70">${avgKwhRate.toFixed(2)}</span></div>}
-          </div>
-        </button>
-
-        {/* Mantenimiento summary */}
-        <button
-          type="button"
-          onClick={() => onNavigate("mantenimiento")}
-          className="rounded-xl border border-blue-500/15 bg-blue-500/[0.03] p-3 text-left transition-colors hover:bg-blue-500/[0.06]"
-        >
-          <p className="mb-2 text-[10px] font-semibold text-blue-400/80">🔧 Mantenimiento</p>
-          <div className="space-y-1 text-[10px]">
-            <div className="flex justify-between"><span className="text-white/35">Serv. oficial</span><span className="font-medium text-white/70">{formatCurrency(totalOficial)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Otros costos</span><span className="font-medium text-white/70">{formatCurrency(totalOtros)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Total mant.</span><span className="font-medium text-white/70">{formatCurrency(totalOficial + totalOtros)}</span></div>
-            <div className="flex justify-between"><span className="text-white/35">Servicios</span><span className="font-medium text-white/70">{mantenimientoList.length} realizados</span></div>
-            {proximo && <div className="flex justify-between"><span className="text-white/35">Próximo</span><span className={`font-medium ${status.color}`}>{proximo.km.toLocaleString()} km</span></div>}
-            <div className="flex justify-between"><span className="text-white/35">Alerta</span><span className={`font-medium ${status.color}`}>{status.label}</span></div>
-          </div>
-        </button>
-      </div>
-
-      {/* ── Stacked spend bar ── */}
-      {totalIntegrado > 0 && (
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <p className="mb-3 text-[11px] font-medium text-white/40">Desglose del gasto total</p>
-          {/* Stacked bar */}
-          <div className="flex h-5 overflow-hidden rounded-full">
-            {segments.map((seg) => (
-              <div
-                key={seg.label}
-                style={{ width: `${(seg.value / totalIntegrado) * 100}%`, background: seg.color, opacity: 0.7 }}
-                title={`${seg.label}: ${formatCurrency(seg.value)}`}
-              />
-            ))}
-          </div>
-          {/* Legend */}
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            {segments.map((seg) => {
-              const pct = Math.round((seg.value / totalIntegrado) * 100);
+          {/* Health status — horizontal compact */}
+          <button
+            type="button"
+            onClick={() => onNavigate("mantenimiento")}
+            className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:opacity-90 ${status.borderColor} ${status.bg}`}
+          >
+            {/* Mini ring */}
+            {(() => {
+              const R = 18; const C = 2 * Math.PI * R;
               return (
-                <div key={seg.label} className="flex items-center gap-1.5 text-[10px]">
-                  <span className="h-2 w-2 rounded-full" style={{ background: seg.color }} />
-                  <span className="text-white/40">{seg.label}</span>
-                  <span className="font-medium text-white/60">{formatCurrency(seg.value)}</span>
-                  <span className="text-white/25">{pct}%</span>
-                </div>
+                <svg width="44" height="44" viewBox="0 0 44 44" className="shrink-0">
+                  <circle cx="22" cy="22" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+                  <circle cx="22" cy="22" r={R} fill="none" stroke={healthColor} strokeWidth="5"
+                    strokeLinecap="round" strokeDasharray={C}
+                    strokeDashoffset={C - (healthScore / 100) * C}
+                    transform="rotate(-90 22 22)"
+                    style={{ transition: "stroke-dashoffset 1s ease" }}
+                  />
+                  <text x="22" y="22" textAnchor="middle" dominantBaseline="central"
+                    style={{ fontSize: 11, fontWeight: 700, fill: healthColor }}>{healthScore}</text>
+                </svg>
               );
-            })}
-          </div>
-          <div className="mt-2 flex justify-between border-t border-white/5 pt-2 text-[10px]">
-            <span className="text-white/25">Total integrado</span>
-            <span className="font-semibold text-byd-400">{formatCurrency(totalIntegrado)}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Quick access ── */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        {([
-          { label: "Gasolina",  icon: "⛽", s: "gasolina"      },
-          { label: "Cargas EV", icon: "🔋", s: "cargas"        },
-          { label: "Energía",   icon: "⚡", s: "energia"       },
-          { label: "Mantenim.", icon: "🔧", s: "mantenimiento" },
-          { label: "Historial", icon: "📋", s: "historial"     },
-          { label: "Reportes",  icon: "📊", s: "reportes"      },
-        ] as { label: string; icon: string; s: Section }[]).map((item) => (
-          <button
-            key={item.s}
-            type="button"
-            onClick={() => onNavigate(item.s)}
-            className="flex flex-col items-center gap-1 rounded-xl border border-white/5 bg-white/[0.02] py-3 text-center transition-colors hover:bg-white/[0.05]"
-          >
-            <span className="text-xl">{item.icon}</span>
-            <span className="text-[9px] text-white/35">{item.label}</span>
+            })()}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold" style={{ color: healthColor }}>{healthLabel}</span>
+                <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${status.color} ${status.borderColor}`}>{status.label}</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-white/35 truncate">{status.message}</p>
+              <div className="mt-1 flex gap-3 text-[9px] text-white/25">
+                <span>Km restantes: <span className={status.color}>{kmRestantes > 0 ? kmRestantes.toLocaleString() : "Vencido"}</span></span>
+                {mesesRestantes !== undefined && (
+                  <span>Tiempo: <span className={status.color}>{mesesRestantes > 0 ? `${mesesRestantes} meses` : "Vencido"}</span></span>
+                )}
+              </div>
+            </div>
+            <span className="shrink-0 text-white/20 text-xs">→</span>
           </button>
-        ))}
+
+          {/* Stacked spend breakdown */}
+          {totalIntegrado > 0 && (
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <p className="mb-2 text-[10px] font-medium text-white/40">Desglose del gasto integrado</p>
+              {/* Stacked bar */}
+              <div className="flex h-4 overflow-hidden rounded-full mb-2">
+                {segments.map((seg) => (
+                  <div key={seg.label}
+                    style={{ width: `${(seg.value / totalIntegrado) * 100}%`, background: seg.color, opacity: 0.7 }}
+                    title={`${seg.label}: ${formatCurrency(seg.value)}`}
+                  />
+                ))}
+              </div>
+              {/* Horizontal mini-bars per category */}
+              <div className="space-y-1.5">
+                {segments.map((seg) => {
+                  const pct = Math.round((seg.value / totalIntegrado) * 100);
+                  return (
+                    <div key={seg.label} className="flex items-center gap-2 text-[10px]">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: seg.color }} />
+                      <span className="w-24 shrink-0 text-white/40">{seg.label}</span>
+                      <div className="flex-1 h-1 rounded-full bg-white/[0.05]">
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: seg.color, opacity: 0.6 }} />
+                      </div>
+                      <span className="w-16 text-right font-medium text-white/55">{formatCurrency(seg.value)}</span>
+                      <span className="w-7 text-right text-white/25">{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex justify-between border-t border-white/5 pt-2 text-[10px]">
+                <span className="text-white/25">Total</span>
+                <span className="font-bold text-byd-400">{formatCurrency(totalIntegrado)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ───── RIGHT column (1fr) ───── */}
+        <div className="space-y-2">
+
+          {/* ⛽ Gasolina */}
+          <button type="button" onClick={() => onNavigate("gasolina")}
+            className="w-full rounded-xl border border-amber-500/15 bg-amber-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-amber-500/[0.06]">
+            <p className="mb-1.5 text-[10px] font-semibold text-amber-400/80">⛽ Gasolina</p>
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between"><span className="text-white/30">{totalLitros.toFixed(0)} L · {rendimientoKmL} km/L</span><span className="font-medium text-white/60">{formatCurrency(gastoGasolina)}</span></div>
+              <div className="flex justify-between"><span className="text-white/30">Costo / km</span><span className="font-medium text-white/60">${costoPorKmGasolina.toFixed(2)}</span></div>
+              {avgKmRecarga > 0 && <div className="flex justify-between"><span className="text-white/30">Km entre recargas</span><span className="font-medium text-white/60">{avgKmRecarga.toLocaleString()}</span></div>}
+              {ultimaRecarga && <div className="flex justify-between"><span className="text-white/30">Última recarga</span><span className="font-medium text-white/60">{formatDateShort(ultimaRecarga.fecha)}</span></div>}
+            </div>
+          </button>
+
+          {/* ⚡ Electricidad */}
+          <button type="button" onClick={() => onNavigate("energia")}
+            className="w-full rounded-xl border border-green-500/15 bg-green-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-green-500/[0.06]">
+            <p className="mb-1.5 text-[10px] font-semibold text-green-400/80">⚡ Electricidad BYD</p>
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between"><span className="text-white/30">Gasto anual</span><span className="font-medium text-white/60">{formatCurrency(kpisElectricos.anual)}</span></div>
+              {totalKwhByd > 0 && <div className="flex justify-between"><span className="text-white/30">kWh BYD acum.</span><span className="font-medium text-white/60">{totalKwhByd.toFixed(0)} kWh</span></div>}
+              {totalKwhCasa > 0 && <div className="flex justify-between"><span className="text-white/30">kWh Casa acum.</span><span className="font-medium text-white/60">{totalKwhCasa.toFixed(0)} kWh</span></div>}
+              {avgKwhRate > 0 && <div className="flex justify-between"><span className="text-white/30">Tarifa prom.</span><span className="font-medium text-white/60">${avgKwhRate.toFixed(2)}/kWh</span></div>}
+            </div>
+          </button>
+
+          {/* 🔧 Mantenimiento */}
+          <button type="button" onClick={() => onNavigate("mantenimiento")}
+            className="w-full rounded-xl border border-blue-500/15 bg-blue-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-blue-500/[0.06]">
+            <p className="mb-1.5 text-[10px] font-semibold text-blue-400/80">🔧 Mantenimiento</p>
+            <div className="space-y-1 text-[10px]">
+              <div className="flex justify-between"><span className="text-white/30">Serv. oficial</span><span className="font-medium text-white/60">{formatCurrency(totalOficial)}</span></div>
+              {totalOtros > 0 && <div className="flex justify-between"><span className="text-white/30">Otros costos</span><span className="font-medium text-white/60">{formatCurrency(totalOtros)}</span></div>}
+              <div className="flex justify-between"><span className="text-white/30">Servicios realizados</span><span className="font-medium text-white/60">{mantenimientoList.length}</span></div>
+              {proximo && <div className="flex justify-between"><span className="text-white/30">Próximo</span><span className={`font-medium ${status.color}`}>{proximo.km.toLocaleString()} km</span></div>}
+            </div>
+          </button>
+
+        </div>
       </div>
     </div>
   );

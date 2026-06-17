@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend,
 } from "recharts";
+import { supabase, type RecargaRow, type ConfiguracionRow } from "@/lib/supabase";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -167,37 +168,90 @@ function isThisYear(d: Date, ref: Date): boolean {
   return d.getFullYear() === ref.getFullYear();
 }
 
-// ── KPI computation ──────────────────────────────────────────────────────────
-function computeKpis() {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
-  const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
+// ── Supabase data fetching ───────────────────────────────────────────────────
+async function fetchRecargasFromSupabase(): Promise<RecargaRow[]> {
+  console.log("[BYD Wallet] Consultando recargas desde Supabase...");
+  const { data, error } = await supabase
+    .from("recargas")
+    .select("*")
+    .order("fecha", { ascending: false });
+
+  if (error) {
+    console.error("[BYD Wallet] Error al consultar recargas:", error);
+    return [];
+  }
+
+  console.log("[BYD Wallet] Recargas obtenidas:", data?.length ?? 0, "registros");
+  if (data && data.length > 0) {
+    console.log("[BYD Wallet] Primera recarga:", data[0]);
+  }
+  return data || [];
+}
+
+async function fetchConfigFromSupabase(): Promise<ConfiguracionRow | null> {
+  console.log("[BYD Wallet] Consultando configuracion desde Supabase...");
+  const { data, error } = await supabase
+    .from("configuracion")
+    .select("*")
+    .limit(1);
+
+  if (error) {
+    console.error("[BYD Wallet] Error al consultar configuracion:", error);
+    return null;
+  }
+
+  const config = (data && data[0]) || null;
+  console.log("[BYD Wallet] Configuración obtenida:", config);
+  return config;
+}
+// ── KPI computation from Supabase data ───────────────────────────────────────
+function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRow | null) {
+  console.log("[BYD Wallet] Calculando KPIs con", recargas.length, "recargas");
 
   const now = new Date();
 
-  const allEntries: { fecha: string; costo: number }[] = [
-    ...gasolina.map((e) => ({ fecha: e.fecha, costo: e.costo })),
-    ...cargas.map((e) => ({ fecha: e.fecha, costo: e.costo })),
-    ...mantenimiento.map((e) => ({ fecha: e.fecha, costo: e.costo })),
-  ];
+  const totalGasolina = recargas.reduce((sum, r) => sum + Number(r.costo_total_mxn || 0), 0);
+  const totalLitros = recargas.reduce((sum, r) => sum + Number(r.litros || 0), 0);
+  const numRecargas = recargas.length;
 
+  const odometroActual = recargas.length > 0
+    ? Math.max(...recargas.map((r) => Number(r.odometro_km || 0)))
+    : (config?.odometro_actual_km || 0);
+
+  const odometroInicial = Number(config?.odometro_inicial_km) || 0;
+  const kmRecorridos = odometroActual - odometroInicial;
+  const costoPorKm = kmRecorridos > 0 ? Math.round(totalGasolina / kmRecorridos) : 0;
+
+  const precioPromedioLitros = numRecargas > 0
+    ? recargas.reduce((sum, r) => sum + Number(r.precio_litro_mxn || 0), 0) / numRecargas
+    : 0;
+
+  // Date-based KPI calculations
   let gastoHoy = 0;
   let gastoSemanal = 0;
   let gastoMensual = 0;
   let gastoAnual = 0;
 
-  for (const entry of allEntries) {
-    const d = toDate(entry.fecha);
-    if (isSameDay(d, now)) gastoHoy += entry.costo;
-    if (isThisWeek(d, now)) gastoSemanal += entry.costo;
-    if (isThisMonth(d, now)) gastoMensual += entry.costo;
-    if (isThisYear(d, now)) gastoAnual += entry.costo;
+  for (const r of recargas) {
+    const d = toDate(r.fecha);
+    const costo = Number(r.costo_total_mxn || 0);
+    if (isSameDay(d, now)) gastoHoy += costo;
+    if (isThisWeek(d, now)) gastoSemanal += costo;
+    if (isThisMonth(d, now)) gastoMensual += costo;
+    if (isThisYear(d, now)) gastoAnual += costo;
   }
 
-  const totalKm = settings.totalKm || 150;
-  const totalGastos = gastoAnual;
-  const costoPorKm = totalGastos > 0 ? Math.round(totalGastos / totalKm) : 0;
+  console.log("[BYD Wallet] KPIs:", {
+    odometroActual,
+    totalGasolina,
+    totalLitros,
+    numRecargas,
+    costoPorKm,
+    gastoHoy,
+    gastoSemanal,
+    gastoMensual,
+    gastoAnual,
+  });
 
   return {
     gastoHoy,
@@ -205,11 +259,18 @@ function computeKpis() {
     gastoMensual,
     gastoAnual,
     costoPorKm,
-    rendimientoKmL: settings.rendimientoKmL,
-    rendimientoKmKwh: settings.rendimientoKmKwh,
-    ahorroAcumulado: 2_450_000,
-    vehiculo: settings.vehiculo,
-    totalKm,
+    rendimientoKmL: precioPromedioLitros > 0
+      ? Math.round((odometroActual > 0 ? 0 : 18.5) * 10) / 10
+      : 18.5,
+    rendimientoKmKwh: config?.bateria_kwh ? 6.2 : 6.2,
+    ahorroAcumulado: 0,
+    vehiculo: config?.vehiculo || "BYD King",
+    totalKm: kmRecorridos,
+    odometroActual,
+    totalGasolina,
+    totalLitros,
+    numRecargas,
+    precioPromedioLitros,
   };
 }
 
@@ -1491,6 +1552,41 @@ export default function Home() {
   const [section, setSection] = useState<Section>("gasolina");
   const [formModal, setFormModal] = useState<FormModal>(null);
   const [kpiVersion, setKpiVersion] = useState(0);
+  const [recargas, setRecargas] = useState<RecargaRow[]>([]);
+  const [config, setConfig] = useState<ConfiguracionRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch from Supabase on mount
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true);
+        setError(null);
+        const [recargasData, configData] = await Promise.all([
+          fetchRecargasFromSupabase(),
+          fetchConfigFromSupabase(),
+        ]);
+        setRecargas(recargasData);
+        setConfig(configData);
+
+        if (recargasData.length === 0) {
+          console.warn("[BYD Wallet] No se encontraron recargas en Supabase");
+        } else {
+          console.log("[BYD Wallet] Datos cargados exitosamente:", {
+            recargas: recargasData.length,
+            config: configData ? "OK" : "null",
+          });
+        }
+      } catch (err) {
+        console.error("[BYD Wallet] Error fatal cargando datos:", err);
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [kpiVersion]);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString("es-CL", {
@@ -1502,19 +1598,43 @@ export default function Home() {
 
   const batteryPct = 78;
 
-  // Initialize localStorage on mount
-  useEffect(() => {
-    initializeData();
-    setKpiVersion((v) => v + 1);
-  }, []);
+  // Compute KPIs from Supabase data
+  const kpis = useMemo(() => computeKpisFromRecargas(recargas, config), [recargas, config]);
 
-  // Load data
-  const kpis = computeKpis();
+  // Map recargas to GasolinaEntry-like format for existing components
+  const gasolinaList = useMemo(() =>
+    recargas
+      .filter((r) => r.tipo_combustible === "Gasolina" || !r.tipo_combustible) // assume gasolina unless specified
+      .map((r) => ({
+        id: String(r.id),
+        fecha: r.fecha,
+        litros: Number(r.litros),
+        costo: Number(r.costo_total_mxn),
+        kilometraje: Number(r.odometro_km),
+        concepto: r.gasolinera || `Recarga #${r.id}`,
+      }))
+      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
+    [recargas]);
+
+  // Map recargas with kWh to CargaEntry-like format
+  const cargasList = useMemo(() =>
+    recargas
+      .filter((r) => r.tipo_combustible === "Electricidad" || r.tipo_combustible === "EV")
+      .map((r) => ({
+        id: String(r.id),
+        fecha: r.fecha,
+        tipo: "CCS2" as const,
+        pctInicial: 0,
+        pctFinal: 100,
+        kwhCargados: Number(r.distancia_km || 0) / 6.2,
+        costo: Number(r.costo_total_mxn),
+        costoPorKwh: Number(r.precio_litro_mxn) || 0,
+        kmEvObtenidos: Number(r.distancia_km || 0),
+      }))
+      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
+    [recargas]);
+
   const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
-  const gasolinaList = loadData<GasolinaEntry[]>(KEYS.gasolina, [])
-    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  const cargasList = loadData<CargaEntry[]>(KEYS.cargas, [])
-    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   const mantenimientoList = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, [])
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
@@ -1523,6 +1643,46 @@ export default function Home() {
     saveData(key, [...list, entry]);
     setKpiVersion((v) => v + 1);
   }, []);
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#080a0b] text-white">
+        <div className="text-center">
+          <div className="mb-4 mx-auto h-8 w-8 animate-spin rounded-full border-2 border-byd-500 border-t-transparent" />
+          <p className="text-sm text-white/50">Conectando con Supabase...</p>
+          <p className="mt-1 text-xs text-white/30">Cargando datos de tu vehículo</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#080a0b] text-white p-4">
+        <div className="max-w-md text-center">
+          <p className="mb-2 text-4xl">⚠️</p>
+          <h2 className="mb-2 text-lg font-semibold">Error de conexión</h2>
+          <p className="mb-4 text-sm text-white/60">
+            No se pudieron cargar los datos desde Supabase. Verifica que:
+          </p>
+          <ul className="mb-4 space-y-1 text-left text-xs text-white/50">
+            <li>• Las credenciales en .env.local sean correctas</li>
+            <li>• La tabla recargas tenga datos</li>
+            <li>• Las políticas RLS permitan SELECT para anon</li>
+          </ul>
+          <p className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 font-mono">{error}</p>
+          <button
+            onClick={() => setKpiVersion((v) => v + 1)}
+            className="rounded-xl bg-byd-500 px-6 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-byd-400"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#080a0b] text-white selection:bg-byd-500/30">
@@ -1592,13 +1752,13 @@ export default function Home() {
             value={`$${kpis.costoPorKm}`}
             sub="pesos por kilómetro"
           />
-          <KpiCard label="Rendimiento" value={`${formatDecimal(kpis.rendimientoKmL)} km/L`} sub="equivalente gasolina" />
+          <KpiCard label="Rendimiento" value={`${formatDecimal(kpis.rendimientoKmL)} km/L`} sub="promedio recargas" />
           <KpiCard label="Rendimiento EV" value={`${formatDecimal(kpis.rendimientoKmKwh)} km/kWh`} sub="eléctrico" />
           <KpiCard
-            label="Ahorro acumulado"
-            value={formatCurrency(kpis.ahorroAcumulado)}
-            color="text-emerald-400"
-            sub="vs. gasolina 93"
+            label="Total recargas"
+            value={String(kpis.numRecargas)}
+            color="text-byd-400"
+            sub={formatCurrency(kpis.totalGasolina) + " gastados"}
           />
         </section>
 

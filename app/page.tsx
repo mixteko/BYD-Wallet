@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.3";
+const APP_VERSION = "0.5.2.4";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -332,6 +332,31 @@ async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "cre
   const { error } = await sb.from("periodos_electricos").insert(row as never);
   if (error) {
     console.error("[BYD Wallet] Error al insertar periodo eléctrico:", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function updatePeriodoElectrico(
+  id: number,
+  row: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">
+): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb) return false;
+  const { error } = await sb.from("periodos_electricos").update(row as never).eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al actualizar periodo eléctrico:", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function deletePeriodoElectrico(id: number): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb) return false;
+  const { error } = await sb.from("periodos_electricos").delete().eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al eliminar periodo eléctrico:", error.message);
     return false;
   }
   return true;
@@ -1701,22 +1726,71 @@ function ComparativoGasolinaVsElectricidad() {
   );
 }
 
+// ── Confirm dialog ───────────────────────────────────────────────────────
+function ConfirmDialog({
+  isOpen,
+  onConfirm,
+  onCancel,
+  title,
+  message,
+}: {
+  isOpen: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  title: string;
+  message: string;
+}) {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
+        <h3 className="mb-2 text-base font-semibold text-white">{title}</h3>
+        <p className="mb-5 text-sm text-white/60">{message}</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-400"
+          >
+            Eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Recibo CFE form ──────────────────────────────────────────────────────
 function ReciboForm({
   onSave,
   onClose,
+  initialData,
+  isEdit,
 }: {
   onSave: (data: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">) => Promise<boolean>;
   onClose: () => void;
+  initialData?: PeriodoElectricoRow | null;
+  isEdit?: boolean;
 }) {
-  const [fechaInicio, setFechaInicio] = useState("");
-  const [fechaFin, setFechaFin] = useState("");
-  const [kwh, setKwh] = useState("");
-  const [total, setTotal] = useState("");
-  const [tarifa, setTarifa] = useState("");
-  const [numRecibo, setNumRecibo] = useState("");
-  const [proveedor, setProveedor] = useState("CFE");
-  const [notas, setNotas] = useState("");
+  const [fechaInicio, setFechaInicio] = useState(initialData?.fecha_inicio || "");
+  const [fechaFin, setFechaFin] = useState(initialData?.fecha_fin || "");
+  const [kwh, setKwh] = useState(initialData ? String(initialData.kwh_bimestre) : "");
+  const [total, setTotal] = useState(initialData ? String(initialData.costo_total_mxn) : "");
+  const [tarifa, setTarifa] = useState(initialData?.tarifa || "");
+  const [numRecibo, setNumRecibo] = useState(initialData?.numero_recibo || "");
+  const [proveedor, setProveedor] = useState(initialData?.proveedor || "CFE");
+  const [notas, setNotas] = useState(initialData?.notas || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1785,7 +1859,7 @@ function ReciboForm({
           Cancelar
         </button>
         <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
-          {saving ? "Guardando..." : "Guardar recibo"}
+          {saving ? "Guardando..." : isEdit ? "Actualizar recibo" : "Guardar recibo"}
         </button>
       </div>
     </form>
@@ -1797,10 +1871,22 @@ function SeccionEnergia({
   periodos,
   cargas,
   onNewRecibo,
+  onEditRecibo,
+  onDeleteRecibo,
+  onViewRecibo,
+  costoMarginalManual,
+  onCostoMarginalChange,
+  reciboEnDetalle,
 }: {
   periodos: PeriodoElectricoRow[];
   cargas: CargaEntry[];
   onNewRecibo: () => void;
+  onEditRecibo: (r: PeriodoElectricoRow) => void;
+  onDeleteRecibo: (r: PeriodoElectricoRow) => void;
+  onViewRecibo: (r: PeriodoElectricoRow | null) => void;
+  costoMarginalManual: string;
+  onCostoMarginalChange: (v: string) => void;
+  reciboEnDetalle: PeriodoElectricoRow | null;
 }) {
   const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
 
@@ -1819,7 +1905,16 @@ function SeccionEnergia({
   const costoBydPromedio = Math.round(kwhBydRounded * costoKwh * 100) / 100;
   const costoCasaPromedio = Math.round(kwhCasa * costoKwh * 100) / 100;
 
+  // Marginal calculation
+  const costoMarginalPorKwh = parseFloat(costoMarginalManual) || 0;
+  const costoBydMarginal = costoMarginalPorKwh > 0
+    ? Math.round(kwhBydRounded * costoMarginalPorKwh * 100) / 100
+    : 0;
+
   const recibosAnteriores = periodos.slice(1);
+
+  // ── Detail modal ──
+  const detalle = reciboEnDetalle;
 
   return (
     <>
@@ -1833,6 +1928,55 @@ function SeccionEnergia({
           + Nuevo recibo
         </button>
       </div>
+
+      {/* ═══ Detail modal ═══ */}
+      <Modal isOpen={!!detalle} onClose={() => onViewRecibo(null)} title="📄 Detalle del recibo">
+        {detalle && (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-white/40">Periodo</span>
+              <span className="font-medium text-white/80">
+                {formatDateOnlyMX(detalle.fecha_inicio)} — {formatDateOnlyMX(detalle.fecha_fin)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Proveedor</span>
+              <span className="font-medium text-white/80">{detalle.proveedor || "CFE"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Tarifa</span>
+              <span className="font-medium text-white/80">{detalle.tarifa || "1C"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Consumo</span>
+              <span className="font-medium text-white/80">{detalle.kwh_bimestre} kWh</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Costo total</span>
+              <span className="font-medium text-byd-400">{formatCurrency(detalle.costo_total_mxn)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Costo promedio</span>
+              <span className="font-medium text-white/80">
+                {detalle.costo_kwh_mxn ? `${Number(detalle.costo_kwh_mxn).toFixed(4)}/kWh` : "—"}
+              </span>
+            </div>
+            {detalle.numero_recibo && (
+              <div className="flex justify-between">
+                <span className="text-white/40">Número de recibo</span>
+                <span className="font-medium text-white/60 text-xs">{detalle.numero_recibo}</span>
+              </div>
+            )}
+            {detalle.notas && (
+              <div className="flex justify-between">
+                <span className="text-white/40">Notas</span>
+                <span className="font-medium text-white/60 text-xs">{detalle.notas}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {/* Card A: Recibo CFE vigente */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
@@ -1874,6 +2018,29 @@ function SeccionEnergia({
                   <span className="font-medium text-white/60 text-xs">{ultimoRecibo.numero_recibo}</span>
                 </div>
               )}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => onViewRecibo(ultimoRecibo)}
+                className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/70"
+              >
+                📋 Detalle
+              </button>
+              <button
+                type="button"
+                onClick={() => onEditRecibo(ultimoRecibo)}
+                className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-white/50 transition-colors hover:bg-white/5 hover:text-white/70"
+              >
+                ✏️ Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteRecibo(ultimoRecibo)}
+                className="rounded-lg border border-red-500/20 px-2.5 py-1 text-[11px] text-red-400/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              >
+                🗑️ Eliminar
+              </button>
             </div>
           </>
         ) : (
@@ -1937,22 +2104,49 @@ function SeccionEnergia({
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         <h3 className="mb-3 text-sm font-medium text-white/80">Costos eléctricos</h3>
         {ultimoRecibo ? (
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-              <span className="text-white/40">Costo BYD promedio</span>
-              <span className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</span>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg bg-byd-500/10 px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-white/40">Costo BYD (Promedio)</span>
+                <span className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-white/30">
+                {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh × ${kwhBydRounded} kWh` : "—"}
+              </p>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-              <span className="text-white/40">Costo casa promedio</span>
-              <span className="font-semibold text-white">{formatCurrency(costoCasaPromedio)}</span>
+            <div className="rounded-lg bg-amber-500/10 px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-white/40">Costo Casa (Promedio)</span>
+                <span className="font-semibold text-white">{formatCurrency(costoCasaPromedio)}</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-white/30">
+                {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh × ${kwhCasa} kWh` : "—"}
+              </p>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-              <span className="text-white/40">Costo conservador</span>
-              <span className="text-xs text-white/30">Próximamente</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
-              <span className="text-white/40">Costo marginal</span>
-              <span className="text-xs text-white/30">Próximamente</span>
+            <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-white/40">Costo BYD (Marginal)</span>
+                <span className="font-semibold text-cyan-400">
+                  {costoBydMarginal > 0 ? formatCurrency(costoBydMarginal) : "—"}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                <label className="text-[10px] text-white/30">$/kWh manual:</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={costoMarginalManual}
+                  onChange={(e) => onCostoMarginalChange(e.target.value)}
+                  placeholder="0.00"
+                  className="w-20 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-white/80 outline-none transition-colors focus:border-byd-500/50"
+                />
+              </div>
+              {costoMarginalPorKwh > 0 && (
+                <p className="mt-0.5 text-[10px] text-white/30">
+                  Estimación conservadora: {costoMarginalPorKwh.toFixed(2)}/kWh × {kwhBydRounded} kWh
+                </p>
+              )}
             </div>
           </div>
         ) : (
@@ -1969,15 +2163,47 @@ function SeccionEnergia({
               {recibosAnteriores.map((r) => (
                 <div
                   key={r.id}
-                  className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2"
+                  className="rounded-lg bg-white/[0.03] px-3 py-2"
                 >
-                  <div>
-                    <p className="text-white/60">
-                      {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
-                    </p>
-                    <p className="text-[11px] text-white/30">{r.kwh_bimestre} kWh</p>
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white/60 truncate">
+                        {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
+                      </p>
+                      <div className="mt-0.5 flex gap-3 text-[11px] text-white/30">
+                        <span>{r.kwh_bimestre} kWh</span>
+                        <span>{formatCurrency(r.costo_total_mxn)}</span>
+                        <span>Tarifa: {r.tarifa || "1C"}</span>
+                        <span>{r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
+                      </div>
+                    </div>
+                    <div className="ml-2 flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onViewRecibo(r)}
+                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                        title="Ver detalle"
+                      >
+                        📋
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEditRecibo(r)}
+                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                        title="Editar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteRecibo(r)}
+                        className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                        title="Eliminar"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
-                  <p className="font-medium text-white/80">{formatCurrency(r.costo_total_mxn)}</p>
                 </div>
               ))}
             </div>
@@ -2002,6 +2228,10 @@ export default function Home() {
   const [periodosElectricos, setPeriodosElectricos] = useState<PeriodoElectricoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingRecibo, setEditingRecibo] = useState<PeriodoElectricoRow | null>(null);
+  const [deletingRecibo, setDeletingRecibo] = useState<PeriodoElectricoRow | null>(null);
+  const [reciboEnDetalle, setReciboEnDetalle] = useState<PeriodoElectricoRow | null>(null);
+  const [costoMarginalManual, setCostoMarginalManual] = useState("");
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -2353,7 +2583,19 @@ export default function Home() {
           )}
 
           {/* ── Energía ── */}
-          {section === "energia" && <SeccionEnergia periodos={periodosElectricos} cargas={cargasList} onNewRecibo={() => setFormModal("recibo")} />}
+          {section === "energia" && (
+            <SeccionEnergia
+              periodos={periodosElectricos}
+              cargas={cargasList}
+              onNewRecibo={() => setFormModal("recibo")}
+              onEditRecibo={(r) => setEditingRecibo(r)}
+              onDeleteRecibo={(r) => setDeletingRecibo(r)}
+              onViewRecibo={(r) => setReciboEnDetalle(r)}
+              costoMarginalManual={costoMarginalManual}
+              onCostoMarginalChange={setCostoMarginalManual}
+              reciboEnDetalle={reciboEnDetalle}
+            />
+          )}
         </div>
 
         {/* ═══ FOOTER ═══ */}
@@ -2439,6 +2681,41 @@ export default function Home() {
           onClose={() => setFormModal(null)}
         />
       </Modal>
+
+      {/* ═══ Editar recibo modal ═══ */}
+      <Modal isOpen={!!editingRecibo} onClose={() => setEditingRecibo(null)} title="✏️ Editar recibo CFE">
+        {editingRecibo && (
+          <ReciboForm
+            initialData={editingRecibo}
+            isEdit
+            onSave={async (data) => {
+              const ok = await updatePeriodoElectrico(editingRecibo.id, data);
+              if (ok) {
+                setEditingRecibo(null);
+                setKpiVersion((v) => v + 1);
+              }
+              return ok;
+            }}
+            onClose={() => setEditingRecibo(null)}
+          />
+        )}
+      </Modal>
+
+      {/* ═══ Confirmar eliminación ═══ */}
+      <ConfirmDialog
+        isOpen={!!deletingRecibo}
+        title="Eliminar recibo"
+        message="¿Deseas eliminar este recibo?"
+        onConfirm={async () => {
+          if (!deletingRecibo) return;
+          const ok = await deletePeriodoElectrico(deletingRecibo.id);
+          if (ok) {
+            setDeletingRecibo(null);
+            setKpiVersion((v) => v + 1);
+          }
+        }}
+        onCancel={() => setDeletingRecibo(null)}
+      />
     </div>
   );
 }

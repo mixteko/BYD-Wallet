@@ -1958,7 +1958,15 @@ function SeccionEnergia({
   onCostoMarginalChange: (v: string) => void;
   reciboEnDetalle: PeriodoElectricoRow | null;
 }) {
-  const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
+  // Select vigente: most recent valid period (20–70 days).
+  // If all are suspicious, fall back to periodos[0] with a flag.
+  const isPeriodoValido = (r: PeriodoElectricoRow) => {
+    const days = (new Date(r.fecha_fin).getTime() - new Date(r.fecha_inicio).getTime()) / 86400000;
+    return days >= 20 && days <= 70;
+  };
+  const validos = periodos.filter(isPeriodoValido);
+  const viGenteIsSuspicious = validos.length === 0 && periodos.length > 0;
+  const ultimoRecibo = validos.length > 0 ? validos[0] : periodos.length > 0 ? periodos[0] : null;
 
   // Compute kWh BYD — use stored value from DB if > 0, else calculate from cargas
   const bydInfo = ultimoRecibo ? getBydKwhForPeriod(ultimoRecibo, cargas) : { value: 0, isManual: false };
@@ -2101,8 +2109,13 @@ function SeccionEnergia({
                 </div>
               )}
             </div>
+            {viGenteIsSuspicious && (
+              <p className="mt-2 text-[10px] text-amber-400/80">
+                ⚠️ Todos los recibos son sospechosos. Mostrando el más reciente.
+              </p>
+            )}
             {ultimoRecibo && getPeriodoAlerts(ultimoRecibo).length > 0 && (
-              <div className="mt-2 space-y-0.5">
+              <div className="mt-1 space-y-0.5">
                 {getPeriodoAlerts(ultimoRecibo).map((a, i) => (
                   <p key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</p>
                 ))}

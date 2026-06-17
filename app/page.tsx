@@ -138,9 +138,32 @@ function initializeData(): void {
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
+function parseDDMMYY(fecha: string): Date {
+  // Convert DD/MM/YY to proper Date. Examples: 25/08/25 → 25/08/2025
+  const match = fecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1; // JS months are 0-indexed
+    let year = parseInt(match[3], 10);
+    // Convert 2-digit year to 4-digit: 25 → 2025, 99 → 1999
+    year += year >= 50 ? 1900 : 2000;
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  return new Date(fecha); // fallback: try native parsing
+}
+
 function toDate(fecha: string): Date {
+  if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(fecha)) {
+    return parseDDMMYY(fecha);
+  }
   const d = new Date(fecha);
   return isNaN(d.getTime()) ? new Date() : d;
+}
+
+// Safe date comparison for sorting — works with DD/MM/YY and ISO strings
+function dateSortValue(fecha: string): number {
+  return toDate(fecha).getTime();
 }
 
 function isSameDay(d1: Date, d2: Date): boolean {
@@ -218,7 +241,9 @@ function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRo
     ? Math.max(...recargas.map((r) => Number(r.odometro_km || 0)))
     : (config?.odometro_actual_km || 0);
 
-  const odometroInicial = Number(config?.odometro_inicial_km) || 0;
+  const odometroInicial = recargas.length > 0
+    ? Math.min(...recargas.map((r) => Number(r.odometro_km || 0)))
+    : 0;
   const kmRecorridos = odometroActual - odometroInicial;
   const costoPorKm = kmRecorridos > 0 ? Math.round(totalGasolina / kmRecorridos) : 0;
 
@@ -1102,8 +1127,7 @@ function HistoryTable() {
       case "mes": return isThisMonth(d, now);
       case "ano": return isThisYear(d, now);
     }
-  }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-
+  }).sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
   const totalImporte = filtered.reduce((acc, r) => acc + r.importe, 0);
 
   const tipoIcon: Record<string, string> = {
@@ -1278,7 +1302,7 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
     setTickets(loadData<TicketEntry[]>(KEYS.tickets, []));
   }, [refreshKey]);
 
-  const sorted = [...tickets].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  const sorted = [...tickets].sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1461,7 +1485,7 @@ function RendimientoHistorico() {
     const entries = gasolina
       .filter((e) => e.litros > 0 && e.kilometraje > 0 && e.costo > 0)
       .slice()
-      .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+      .sort((a, b) => dateSortValue(a.fecha) - dateSortValue(b.fecha))
       .map((e, i) => ({
         n: `#${i + 1}`,
         kmL: Math.round((e.litros > 0 ? (e.kilometraje / e.litros) * 0.1 : 0) * 10) / 10,
@@ -1613,7 +1637,7 @@ export default function Home() {
         kilometraje: Number(r.odometro_km),
         concepto: r.gasolinera || `Recarga #${r.id}`,
       }))
-      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
+      .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha)),
     [recargas]);
 
   // Map recargas with kWh to CargaEntry-like format
@@ -1631,12 +1655,12 @@ export default function Home() {
         costoPorKwh: Number(r.precio_litro_mxn) || 0,
         kmEvObtenidos: Number(r.distancia_km || 0),
       }))
-      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()),
+      .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha)),
     [recargas]);
 
   const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
   const mantenimientoList = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, [])
-    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);

@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.1.3";
+const APP_VERSION = "0.5.2.0";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1690,21 +1690,32 @@ function ComparativoGasolinaVsElectricidad() {
   );
 }
 
-// ── Energía component ────────────────────────────────────────────────────
+// ── Centro de Energía component ──────────────────────────────────────────
 function SeccionEnergia() {
   return (
-    <div className="flex flex-col items-center gap-4 py-16 text-center">
-      <span className="text-3xl">⚡</span>
-      <h2 className="text-lg font-semibold text-white/80">Energía</h2>
-      <p className="text-sm text-white/30">Próximamente disponible</p>
-      <div className="mt-2 text-left text-sm text-white/20">
-        <p className="mb-2 font-medium text-white/30">Este módulo administrará:</p>
-        <ul className="space-y-1">
-          <li>• Recibos CFE</li>
-          <li>• Cargas EV</li>
-          <li>• Consumo Casa vs BYD</li>
-          <li>• Estadísticas energéticas</li>
-        </ul>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {/* Card A: Recibo CFE activo */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-2 text-sm font-medium text-white/80">Recibo CFE activo</h3>
+        <p className="text-sm text-white/30">Aquí se mostrará el recibo bimestral vigente.</p>
+      </div>
+
+      {/* Card B: Consumo Casa vs BYD */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-2 text-sm font-medium text-white/80">Consumo Casa vs BYD</h3>
+        <p className="text-sm text-white/30">Aquí se comparará el consumo del hogar contra el consumo del vehículo.</p>
+      </div>
+
+      {/* Card C: Costos eléctricos */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-2 text-sm font-medium text-white/80">Costos eléctricos</h3>
+        <p className="text-sm text-white/30">Aquí se mostrarán el costo promedio, conservador y futuro costo marginal.</p>
+      </div>
+
+      {/* Card D: Historial de recibos */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-2 text-sm font-medium text-white/80">Historial de recibos</h3>
+        <p className="text-sm text-white/30">Aquí se listarán los recibos CFE registrados.</p>
       </div>
     </div>
   );
@@ -1943,7 +1954,7 @@ export default function Home() {
           <NavTab active={section === "historial"} label="📋 Historial" onClick={() => setSection("historial")} />
           <NavTab active={section === "tickets"} label="🎫 Tickets" onClick={() => setSection("tickets")} />
           <NavTab active={section === "reportes"} label="📊 Reportes" onClick={() => setSection("reportes")} />
-          <NavTab active={section === "energia"} label="⚡ Energía" onClick={() => setSection("energia")} />
+          <NavTab active={section === "energia"} label="⚡ Centro de Energía" onClick={() => setSection("energia")} />
         </nav>
 
         {/* ═══ SECTION CONTENT ═══ */}

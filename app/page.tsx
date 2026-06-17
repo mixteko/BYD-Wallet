@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.4";
+const APP_VERSION = "0.5.2.5";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -698,20 +698,25 @@ function Modal({
 function GasolinaForm({
   onSave,
   onClose,
+  initialData,
+  isEdit,
 }: {
   onSave: (entry: GasolinaEntry) => void;
   onClose: () => void;
+  initialData?: GasolinaEntry | null;
+  isEdit?: boolean;
 }) {
-  const [litros, setLitros] = useState("");
-  const [costo, setCosto] = useState("");
-  const [kilometraje, setKilometraje] = useState("");
-  const [concepto, setConcepto] = useState("");
+  const [litros, setLitros] = useState(initialData ? String(initialData.litros) : "");
+  const [costo, setCosto] = useState(initialData ? String(initialData.costo) : "");
+  const [kilometraje, setKilometraje] = useState(initialData ? String(initialData.kilometraje) : "");
+  const [concepto, setConcepto] = useState(initialData?.concepto || "");
+  const [fecha, setFecha] = useState(initialData?.fecha || new Date().toISOString().split("T")[0]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const entry: GasolinaEntry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
-      fecha: new Date().toISOString().split("T")[0],
+      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
+      fecha,
       litros: parseFloat(litros) || 0,
       costo: parseInt(costo) || 0,
       kilometraje: parseInt(kilometraje) || 0,
@@ -722,16 +727,17 @@ function GasolinaForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      <InputField label="Fecha" type="date" value={fecha} onChange={setFecha} required />
       <InputField label="Litros" type="number" step="0.1" value={litros} onChange={setLitros} required />
       <InputField label="Costo ($)" type="number" value={costo} onChange={setCosto} required />
       <InputField label="Kilometraje" type="number" value={kilometraje} onChange={setKilometraje} required />
-      <InputField label="Concepto" type="text" value={concepto} onChange={setConcepto} required />
+      <InputField label="Gasolinera" type="text" value={concepto} onChange={setConcepto} placeholder="Ej. Pemex, Shell..." required />
       <div className="flex gap-2 pt-2">
         <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
         <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
-          Guardar
+          {isEdit ? "Actualizar" : "Guardar"}
         </button>
       </div>
     </form>
@@ -2232,6 +2238,9 @@ export default function Home() {
   const [deletingRecibo, setDeletingRecibo] = useState<PeriodoElectricoRow | null>(null);
   const [reciboEnDetalle, setReciboEnDetalle] = useState<PeriodoElectricoRow | null>(null);
   const [costoMarginalManual, setCostoMarginalManual] = useState("");
+  const [editingGasolina, setEditingGasolina] = useState<GasolinaEntry | null>(null);
+  const [deletingGasolina, setDeletingGasolina] = useState<GasolinaEntry | null>(null);
+  const [gasolinaEnDetalle, setGasolinaEnDetalle] = useState<GasolinaEntry | null>(null);
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -2323,6 +2332,19 @@ export default function Home() {
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
     saveData(key, [...list, entry]);
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleUpdateGasolina = useCallback(function (updated: GasolinaEntry) {
+    const list = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+    const newList = list.map((e) => (e.id === updated.id ? updated : e));
+    saveData(KEYS.gasolina, newList);
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleDeleteGasolina = useCallback(function (id: string) {
+    const list = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+    saveData(KEYS.gasolina, list.filter((e) => e.id !== id));
     setKpiVersion((v) => v + 1);
   }, []);
 
@@ -2482,7 +2504,35 @@ export default function Home() {
                         </p>
                       </div>
                     </div>
-                    <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                      <div className="ml-1 flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setGasolinaEnDetalle(entry)}
+                          className="rounded-lg border border-white/10 px-1.5 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Ver detalle"
+                        >
+                          📋
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingGasolina(entry)}
+                          className="rounded-lg border border-white/10 px-1.5 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Editar"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingGasolina(entry)}
+                          className="rounded-lg border border-red-500/20 px-1.5 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          title="Eliminar"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
                 {gasolinaList.length === 0 && (
@@ -2715,6 +2765,78 @@ export default function Home() {
           }
         }}
         onCancel={() => setDeletingRecibo(null)}
+      />
+
+      {/* ═══ Gasolina detail modal ═══ */}
+      <Modal isOpen={!!gasolinaEnDetalle} onClose={() => setGasolinaEnDetalle(null)} title="⛽ Detalle de recarga">
+        {gasolinaEnDetalle && (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-white/40">Fecha</span>
+              <span className="font-medium text-white/80">{formatDate(gasolinaEnDetalle.fecha)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Gasolinera</span>
+              <span className="font-medium text-white/80">{gasolinaEnDetalle.concepto}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Litros</span>
+              <span className="font-medium text-white/80">{gasolinaEnDetalle.litros} L</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Precio por litro</span>
+              <span className="font-medium text-white/80">
+                {gasolinaEnDetalle.litros > 0
+                  ? `${(gasolinaEnDetalle.costo / gasolinaEnDetalle.litros).toFixed(2)} $/L`
+                  : "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Total</span>
+              <span className="font-medium text-byd-400">{formatCurrency(gasolinaEnDetalle.costo)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Odómetro</span>
+              <span className="font-medium text-white/80">{gasolinaEnDetalle.kilometraje.toLocaleString()} km</span>
+            </div>
+            {gasolinaEnDetalle.kilometraje > 0 && (
+              <div className="flex justify-between">
+                <span className="text-white/40">Rendimiento</span>
+                <span className="font-medium text-white/80">
+                  {((gasolinaEnDetalle.kilometraje || 0) / (gasolinaEnDetalle.litros || 1)).toFixed(1)} km/L
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ═══ Editar gasolina modal ═══ */}
+      <Modal isOpen={!!editingGasolina} onClose={() => setEditingGasolina(null)} title="✏️ Editar recarga">
+        {editingGasolina && (
+          <GasolinaForm
+            initialData={editingGasolina}
+            isEdit
+            onSave={(entry) => {
+              handleUpdateGasolina(entry);
+              setEditingGasolina(null);
+            }}
+            onClose={() => setEditingGasolina(null)}
+          />
+        )}
+      </Modal>
+
+      {/* ═══ Confirmar eliminación gasolina ═══ */}
+      <ConfirmDialog
+        isOpen={!!deletingGasolina}
+        title="Eliminar recarga"
+        message="¿Deseas eliminar esta recarga?"
+        onConfirm={() => {
+          if (!deletingGasolina) return;
+          handleDeleteGasolina(deletingGasolina.id);
+          setDeletingGasolina(null);
+        }}
+        onCancel={() => setDeletingGasolina(null)}
       />
     </div>
   );

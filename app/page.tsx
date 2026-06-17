@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.5";
+const APP_VERSION = "0.5.3.6";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -62,6 +62,29 @@ interface MantenimientoEntry {
   };
 }
 
+// v0.5.3.6 — extra maintenance costs (not part of official service calendar)
+interface OtroCostoEntry {
+  id: string;
+  fecha: string;
+  odometro?: number;
+  concepto: string;
+  categoria: string;
+  costo: number;
+  notas?: string;
+  proveedor?: string;
+}
+
+const OTRAS_CATEGORIAS = [
+  "Filtro de aire",
+  "Filtro de cabina",
+  "Alineación y balanceo",
+  "Rotación de llantas",
+  "Líquido de frenos",
+  "Refacciones",
+  "Mano de obra",
+  "Otros",
+] as const;
+
 interface VehicleSettings {
   vehiculo: string;
   modelo: "king-gl" | "king-gs" | "personalizado";
@@ -107,6 +130,7 @@ const KEYS = {
   gasolina: "byd-gasolina",
   cargas: "byd-cargas",
   mantenimiento: "byd-mantenimiento",
+  otrosCostos: "byd-otros-costos",
   settings: "byd-settings",
   tickets: "byd-tickets",
 } as const;
@@ -2295,21 +2319,102 @@ function RegistrarServicioForm({
   );
 }
 
+// ── OtroCostoForm ─────────────────────────────────────────────────────────
+function OtroCostoForm({
+  initialData,
+  onSave,
+}: {
+  initialData?: OtroCostoEntry;
+  onSave: (entry: OtroCostoEntry) => void;
+}) {
+  const isEdit = !!initialData;
+  const [fecha, setFecha] = useState(initialData?.fecha ?? new Date().toISOString().slice(0, 10));
+  const [odometro, setOdometro] = useState(String(initialData?.odometro ?? ""));
+  const [concepto, setConcepto] = useState(initialData?.concepto ?? "");
+  const [categoria, setCategoria] = useState<string>(initialData?.categoria ?? OTRAS_CATEGORIAS[0]);
+  const [costo, setCosto] = useState(String(initialData?.costo ?? ""));
+  const [proveedor, setProveedor] = useState(initialData?.proveedor ?? "");
+  const [notas, setNotas] = useState(initialData?.notas ?? "");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const costoNum = parseFloat(costo);
+    if (!fecha) { setError("La fecha es requerida."); return; }
+    if (!concepto.trim()) { setError("El concepto es requerido."); return; }
+    if (isNaN(costoNum) || costoNum < 0) { setError("El costo debe ser mayor o igual a 0."); return; }
+    const entry: OtroCostoEntry = {
+      id: initialData?.id ?? String(Date.now()),
+      fecha,
+      odometro: odometro ? parseInt(odometro) : undefined,
+      concepto: concepto.trim(),
+      categoria,
+      costo: costoNum,
+      proveedor: proveedor.trim() || undefined,
+      notas: notas.trim() || undefined,
+    };
+    onSave(entry);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Fecha" type="date" value={fecha} onChange={setFecha} required />
+        <InputField label="Odómetro (km)" type="number" value={odometro} onChange={setOdometro} />
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-medium text-white/40">Categoría</p>
+        <select
+          value={categoria}
+          onChange={(e) => setCategoria(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none focus:border-byd-500/40"
+        >
+          {OTRAS_CATEGORIAS.map((c) => (
+            <option key={c} value={c} className="bg-[#0d1117]">{c}</option>
+          ))}
+        </select>
+      </div>
+      <InputField label="Concepto" type="text" value={concepto} onChange={setConcepto} required />
+      <div className="grid grid-cols-2 gap-3">
+        <InputField label="Costo ($)" type="number" step="0.01" min="0" value={costo} onChange={setCosto} required />
+        <InputField label="Taller / Proveedor" type="text" value={proveedor} onChange={setProveedor} />
+      </div>
+      <InputField label="Notas" type="text" value={notas} onChange={setNotas} />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button
+        type="submit"
+        className="w-full rounded-xl bg-byd-500 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-byd-400"
+      >
+        {isEdit ? "Guardar cambios" : "Registrar gasto"}
+      </button>
+    </form>
+  );
+}
+
 // ── SeccionMantenimiento ───────────────────────────────────────────────────
 function SeccionMantenimiento({
   odometroActual,
   mantenimientoList,
+  otrosCostosList,
   onRegistrar,
   onEdit,
   onDelete,
   onUpdateAdjunto,
+  onNewOtroCosto,
+  onEditOtroCosto,
+  onDeleteOtroCosto,
 }: {
   odometroActual: number;
   mantenimientoList: MantenimientoEntry[];
+  otrosCostosList: OtroCostoEntry[];
   onRegistrar: (km: number) => void;
   onEdit: (entry: MantenimientoEntry) => void;
   onDelete: (entry: MantenimientoEntry) => void;
   onUpdateAdjunto: (id: string, adjunto: MantenimientoEntry["adjunto"]) => void;
+  onNewOtroCosto: () => void;
+  onEditOtroCosto: (entry: OtroCostoEntry) => void;
+  onDeleteOtroCosto: (entry: OtroCostoEntry) => void;
 }) {
   const [viewChecklistId, setViewChecklistId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2360,31 +2465,38 @@ function SeccionMantenimiento({
   const progressPct = Math.min(100, Math.round((kmFromLast / rangeKm) * 100));
   const status = getMantenimientoStatus(kmRestantes);
 
-  // KPI calculations
-  const totalGastado = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
+  // KPI calculations — oficial services only
+  const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
   const totalEstimado = mantenimientoList.reduce((s, e) => s + (e.costoEstimado ?? e.costo), 0);
-  const diffCosto = totalGastado - totalEstimado;
+  const diffCosto = totalOficial - totalEstimado;   // oficial only, no otros
   const maxOdo = mantenimientoList.length > 0 ? Math.max(...mantenimientoList.map((e) => e.km)) : 0;
-  const costoPorKm = maxOdo > 0 ? Math.round((totalGastado / maxOdo) * 100) / 100 : 0;
+  const costoPorKm = maxOdo > 0 ? Math.round((totalOficial / maxOdo) * 100) / 100 : 0;
   const promedioPorServicio = mantenimientoList.length > 0
-    ? Math.round(totalGastado / mantenimientoList.length)
+    ? Math.round(totalOficial / mantenimientoList.length)
     : 0;
 
-  // Chart data — sorted oldest → newest for the x-axis
+  // Otros costos KPIs
+  const totalOtros = otrosCostosList.reduce((s, e) => s + e.costo, 0);
+  const totalGeneral = totalOficial + totalOtros;
+
+  // Bar chart data for oficial services (oldest → newest)
   const chartData = [...mantenimientoList]
-    .sort((a, b) => {
-      if (a.fecha && b.fecha) return a.fecha.localeCompare(b.fecha);
-      return a.km - b.km;
-    })
-    .map((e, i, arr) => {
-      const acumulado = arr.slice(0, i + 1).reduce((s, x) => s + (x.costoReal ?? x.costo), 0);
-      return {
-        label: e.kmProgramado ? `${(e.kmProgramado / 1000).toFixed(0)}k km` : formatDateShort(e.fecha),
-        real: e.costoReal ?? e.costo,
-        estimado: e.costoEstimado ?? e.costo,
-        acumulado,
-      };
-    });
+    .sort((a, b) => (a.fecha && b.fecha ? a.fecha.localeCompare(b.fecha) : a.km - b.km))
+    .map((e) => ({
+      label: e.kmProgramado ? `${(e.kmProgramado / 1000).toFixed(0)}k km` : formatDateShort(e.fecha),
+      real: e.costoReal ?? e.costo,
+      estimado: e.costoEstimado ?? e.costo,
+    }));
+
+  // Category breakdown data (oficial + otros grouped by category)
+  const catMap: Record<string, number> = { "Servicio oficial": totalOficial };
+  for (const e of otrosCostosList) {
+    catMap[e.categoria] = (catMap[e.categoria] ?? 0) + e.costo;
+  }
+  const catData = Object.entries(catMap)
+    .filter(([, v]) => v > 0)
+    .sort(([, a], [, b]) => b - a)
+    .map(([cat, total]) => ({ cat, total }));
 
   return (
     <div className="space-y-4">
@@ -2398,84 +2510,99 @@ function SeccionMantenimiento({
       />
 
       {/* ── KPIs ── */}
-      {mantenimientoList.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
-            <p className="text-[10px] text-white/35">Gasto acumulado</p>
-            <p className="mt-0.5 font-semibold text-white/80">{formatCurrency(totalGastado)}</p>
+      {(mantenimientoList.length > 0 || otrosCostosList.length > 0) && (
+        <div className="space-y-2">
+          {/* Row 1 — oficial */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+              <p className="text-[10px] text-white/35">Serv. oficial</p>
+              <p className="mt-0.5 text-sm font-semibold text-white/80">{formatCurrency(totalOficial)}</p>
+            </div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+              <p className="text-[10px] text-white/35">Promedio / serv.</p>
+              <p className="mt-0.5 text-sm font-semibold text-white/80">{formatCurrency(promedioPorServicio)}</p>
+            </div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+              <p className="text-[10px] text-white/35">Dif. est. vs real</p>
+              <p className={`mt-0.5 text-sm font-semibold ${diffCosto > 0 ? "text-red-400" : diffCosto < 0 ? "text-green-400" : "text-white/60"}`}>
+                {diffCosto === 0 ? "—" : `${diffCosto > 0 ? "+" : ""}${formatCurrency(diffCosto)}`}
+              </p>
+            </div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+              <p className="text-[10px] text-white/35">Costo / km</p>
+              <p className="mt-0.5 text-sm font-semibold text-white/80">${costoPorKm.toFixed(2)}</p>
+            </div>
           </div>
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
-            <p className="text-[10px] text-white/35">Promedio / servicio</p>
-            <p className="mt-0.5 font-semibold text-white/80">{formatCurrency(promedioPorServicio)}</p>
-          </div>
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
-            <p className="text-[10px] text-white/35">Dif. estimado vs real</p>
-            <p className={`mt-0.5 font-semibold ${diffCosto > 0 ? "text-red-400" : diffCosto < 0 ? "text-green-400" : "text-white/60"}`}>
-              {diffCosto === 0 ? "—" : `${diffCosto > 0 ? "+" : ""}${formatCurrency(diffCosto)}`}
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
-            <p className="text-[10px] text-white/35">Costo / km</p>
-            <p className="mt-0.5 font-semibold text-white/80">${costoPorKm.toFixed(2)}</p>
+          {/* Row 2 — otros + total */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-amber-500/10 bg-amber-500/[0.03] p-3 text-center">
+              <p className="text-[10px] text-white/35">Otros costos</p>
+              <p className="mt-0.5 text-sm font-semibold text-amber-400/80">{formatCurrency(totalOtros)}</p>
+            </div>
+            <div className="rounded-xl border border-byd-500/15 bg-byd-500/[0.04] p-3 text-center">
+              <p className="text-[10px] text-white/35">Total general</p>
+              <p className="mt-0.5 text-sm font-semibold text-byd-300">{formatCurrency(totalGeneral)}</p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Gráfica de gasto en mantenimiento ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-4 text-sm font-semibold text-white/80">📊 Evolución del gasto en mantenimiento</h3>
-        {chartData.length === 0 ? (
-          <p className="py-6 text-center text-sm text-white/30">Aún no hay mantenimientos registrados.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} barGap={4} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
-                tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
-                axisLine={false}
-                tickLine={false}
-                width={40}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "#0d1117",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 8,
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.8)",
-                }}
-                formatter={(value: unknown, name: unknown) => [
-                  `$${Number(value).toLocaleString("es-MX", { minimumFractionDigits: 0 })}`,
-                  name === "real" ? "Costo real" : name === "estimado" ? "Costo estimado" : "Acumulado",
-                ]}
-                labelStyle={{ color: "rgba(255,255,255,0.5)", marginBottom: 4 }}
-              />
-              <Legend
-                iconType="circle"
-                iconSize={7}
-                wrapperStyle={{ fontSize: 10, color: "rgba(255,255,255,0.4)", paddingTop: 8 }}
-                formatter={(v: string) =>
-                  v === "real" ? "Costo real" : v === "estimado" ? "Costo estimado" : "Acumulado"
-                }
-              />
-              <Bar dataKey="estimado" fill="rgba(255,255,255,0.08)" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="real" fill="rgba(100,220,180,0.6)" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-        {chartData.length > 0 && (
-          <div className="mt-3 flex items-center gap-4 border-t border-white/5 pt-3 text-[10px] text-white/30">
-            <span>Gasto acumulado total: <span className="font-medium text-white/55">{formatCurrency(totalGastado)}</span></span>
-            <span className="ml-auto">{mantenimientoList.length} servicio{mantenimientoList.length !== 1 ? "s" : ""} registrado{mantenimientoList.length !== 1 ? "s" : ""}</span>
-          </div>
-        )}
+      {/* ── Gráficas: 2-col desktop ── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* Left — Evolución servicios oficiales */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+          <h3 className="mb-3 text-xs font-semibold text-white/70">📊 Servicios oficiales</h3>
+          {chartData.length === 0 ? (
+            <p className="py-8 text-center text-xs text-white/30">Aún no hay mantenimientos registrados.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={130}>
+              <BarChart data={chartData} barGap={4} margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} width={36} />
+                <Tooltip
+                  contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 11, color: "rgba(255,255,255,0.8)" }}
+                  formatter={(value: unknown, name: unknown) => [`$${Number(value).toLocaleString("es-MX")}`, name === "real" ? "Real" : "Estimado"]}
+                  labelStyle={{ color: "rgba(255,255,255,0.4)" }}
+                />
+                <Bar dataKey="estimado" fill="rgba(255,255,255,0.07)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="real" fill="rgba(100,220,180,0.55)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Right — Desglose por categoría */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+          <h3 className="mb-3 text-xs font-semibold text-white/70">🗂️ Desglose por categoría</h3>
+          {catData.length === 0 ? (
+            <p className="py-8 text-center text-xs text-white/30">Sin datos todavía.</p>
+          ) : (
+            <div className="space-y-2">
+              {catData.map(({ cat, total }) => {
+                const pct = totalGeneral > 0 ? Math.round((total / totalGeneral) * 100) : 0;
+                const isOficial = cat === "Servicio oficial";
+                return (
+                  <div key={cat}>
+                    <div className="mb-0.5 flex items-center justify-between text-[10px]">
+                      <span className={isOficial ? "text-green-400/70" : "text-amber-400/70"}>{cat}</span>
+                      <span className="text-white/40">{formatCurrency(total)} · {pct}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
+                      <div
+                        className={`h-full rounded-full ${isOficial ? "bg-green-400/50" : "bg-amber-400/50"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {catData.length > 0 && (
+            <p className="mt-3 text-right text-[9px] text-white/20">Total: {formatCurrency(totalGeneral)}</p>
+          )}
+        </div>
       </div>
 
       {/* ── Próximo servicio ── */}
@@ -2700,6 +2827,62 @@ function SeccionMantenimiento({
           </div>
         ) : (
           <p className="py-6 text-center text-sm text-white/30">No hay registros de mantenimiento aún.</p>
+        )}
+      </div>
+
+      {/* ── Otros costos y refacciones ── */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white/80">🔩 Otros costos y refacciones</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-white/30">{otrosCostosList.length} registros</span>
+            <button
+              type="button"
+              onClick={onNewOtroCosto}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
+            >
+              + Agregar
+            </button>
+          </div>
+        </div>
+        {otrosCostosList.length > 0 ? (
+          <div className="space-y-1.5">
+            {[...otrosCostosList]
+              .sort((a, b) => (a.fecha && b.fecha ? b.fecha.localeCompare(a.fecha) : 0))
+              .map((entry) => (
+                <div key={entry.id} className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-medium text-white/75">{entry.concepto}</p>
+                      <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-medium text-amber-400/80">{entry.categoria}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-white/30">
+                      <span>{formatDate(entry.fecha)}</span>
+                      {entry.odometro && <span>{entry.odometro.toLocaleString()} km</span>}
+                      {entry.proveedor && <span>🏪 {entry.proveedor}</span>}
+                    </div>
+                    {entry.notas && <p className="mt-0.5 text-[10px] italic text-white/20">{entry.notas}</p>}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-semibold text-amber-400/80">{formatCurrency(entry.costo)}</p>
+                    <div className="mt-1 flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onEditOtroCosto(entry)}
+                        className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-white/35 transition-colors hover:bg-white/5 hover:text-white/60"
+                      >✏️</button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteOtroCosto(entry)}
+                        className="rounded border border-red-500/15 px-1.5 py-0.5 text-[10px] text-red-400/35 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                      >🗑️</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        ) : (
+          <p className="py-4 text-center text-xs text-white/25">Ningún gasto extra registrado aún. Agrega filtros, alineación, refacciones, etc.</p>
         )}
       </div>
 
@@ -3371,6 +3554,9 @@ export default function Home() {
   const [registrarServicioKm, setRegistrarServicioKm] = useState<number | null>(null);
   const [editingMantenimiento, setEditingMantenimiento] = useState<MantenimientoEntry | null>(null);
   const [deletingMantenimiento, setDeletingMantenimiento] = useState<MantenimientoEntry | null>(null);
+  const [showOtroCostoForm, setShowOtroCostoForm] = useState(false);
+  const [editingOtroCosto, setEditingOtroCosto] = useState<OtroCostoEntry | null>(null);
+  const [deletingOtroCosto, setDeletingOtroCosto] = useState<OtroCostoEntry | null>(null);
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -3514,6 +3700,8 @@ export default function Home() {
   const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
   const mantenimientoList = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, [])
     .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
+  const otrosCostosList = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, [])
+    .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
@@ -3575,6 +3763,26 @@ export default function Home() {
       KEYS.mantenimiento,
       list.map((e) => (e.id === id ? { ...e, adjunto } : e))
     );
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleSaveOtroCosto = useCallback(function (entry: OtroCostoEntry) {
+    const list = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, []);
+    const exists = list.some((e) => e.id === entry.id);
+    if (exists) {
+      saveData(KEYS.otrosCostos, list.map((e) => (e.id === entry.id ? entry : e)));
+    } else {
+      saveData(KEYS.otrosCostos, [...list, entry]);
+    }
+    setShowOtroCostoForm(false);
+    setEditingOtroCosto(null);
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleDeleteOtroCosto = useCallback(function (id: string) {
+    const list = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, []);
+    saveData(KEYS.otrosCostos, list.filter((e) => e.id !== id));
+    setDeletingOtroCosto(null);
     setKpiVersion((v) => v + 1);
   }, []);
 
@@ -3850,10 +4058,14 @@ export default function Home() {
             <SeccionMantenimiento
               odometroActual={kpis.odometroActual}
               mantenimientoList={mantenimientoList}
+              otrosCostosList={otrosCostosList}
               onRegistrar={(km) => setRegistrarServicioKm(km)}
               onEdit={(entry) => setEditingMantenimiento(entry)}
               onDelete={(entry) => setDeletingMantenimiento(entry)}
               onUpdateAdjunto={handleUpdateAdjunto}
+              onNewOtroCosto={() => setShowOtroCostoForm(true)}
+              onEditOtroCosto={(entry) => setEditingOtroCosto(entry)}
+              onDeleteOtroCosto={(entry) => setDeletingOtroCosto(entry)}
             />
           )}
 
@@ -3966,6 +4178,35 @@ export default function Home() {
         message={`¿Eliminar "${deletingMantenimiento?.servicio}"? Esta acción no se puede deshacer.`}
         onConfirm={() => deletingMantenimiento && handleDeleteMantenimiento(deletingMantenimiento.id)}
         onCancel={() => setDeletingMantenimiento(null)}
+      />
+
+      {/* ── Nuevo otro costo modal ── */}
+      <Modal
+        isOpen={showOtroCostoForm}
+        onClose={() => setShowOtroCostoForm(false)}
+        title="🔩 Agregar costo / refacción"
+      >
+        <OtroCostoForm onSave={handleSaveOtroCosto} />
+      </Modal>
+
+      {/* ── Editar otro costo modal ── */}
+      <Modal
+        isOpen={editingOtroCosto !== null}
+        onClose={() => setEditingOtroCosto(null)}
+        title="✏️ Editar costo / refacción"
+      >
+        {editingOtroCosto !== null && (
+          <OtroCostoForm initialData={editingOtroCosto} onSave={handleSaveOtroCosto} />
+        )}
+      </Modal>
+
+      {/* ── Eliminar otro costo confirm ── */}
+      <ConfirmDialog
+        isOpen={deletingOtroCosto !== null}
+        title="Eliminar registro"
+        message={`¿Eliminar "${deletingOtroCosto?.concepto}"? Esta acción no se puede deshacer.`}
+        onConfirm={() => deletingOtroCosto && handleDeleteOtroCosto(deletingOtroCosto.id)}
+        onCancel={() => setDeletingOtroCosto(null)}
       />
 
       <Modal isOpen={formModal === "ticket"} onClose={() => setFormModal(null)} title="Agregar ticket">

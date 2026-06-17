@@ -14,6 +14,7 @@ export type FuelRow = GastoRow & { litros: number; kilometraje: number };
 
 export type ElectricChargeRow = GastoRow & {
   kwhCargados: number;
+  kmEvObtenidos?: number;
   /** Ubicación/tipo: Casa, Pública, Electrolinera, etc. */
   tipoCarga?: string | null;
 };
@@ -547,6 +548,67 @@ export function buildDailyExpenseLast7Days(
     });
   }
   return days;
+}
+
+// ── Rendimiento energético histórico (Reportes) ─────────────────────────────
+
+export type RefillEfficiencyPoint = { label: string; kmL: number };
+
+export type ChargeEfficiencyPoint = { label: string; kmKwh: number };
+
+export type EnergyEfficiencyChartPoint = {
+  label: string;
+  kmL: number | null;
+  kmKwh: number | null;
+};
+
+/** km/L por recarga: (odómetro actual − anterior) / litros cargados. */
+export function buildFuelEfficiencyHistory(fuelRows: FuelRow[]): RefillEfficiencyPoint[] {
+  const sorted = [...fuelRows].sort((a, b) => {
+    const da = normalizeDate(a.fecha)?.getTime() ?? 0;
+    const db = normalizeDate(b.fecha)?.getTime() ?? 0;
+    if (da !== db) return da - db;
+    return a.kilometraje - b.kilometraje;
+  });
+  const points: RefillEfficiencyPoint[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const km = sorted[i].kilometraje - sorted[i - 1].kilometraje;
+    if (km > 0 && sorted[i].litros > 0) {
+      points.push({
+        label: `#${points.length + 1}`,
+        kmL: Math.round((km / sorted[i].litros) * 100) / 100,
+      });
+    }
+  }
+  return points;
+}
+
+/** km/kWh por carga EV: km EV obtenidos / kWh cargados. */
+export function buildEvEfficiencyHistory(charges: ElectricChargeRow[]): ChargeEfficiencyPoint[] {
+  return [...charges]
+    .filter((c) => c.kwhCargados > 0 && (c.kmEvObtenidos ?? 0) > 0)
+    .sort((a, b) => {
+      const da = normalizeDate(a.fecha)?.getTime() ?? 0;
+      const db = normalizeDate(b.fecha)?.getTime() ?? 0;
+      return da - db;
+    })
+    .map((c, i) => ({
+      label: `#${i + 1}`,
+      kmKwh: Math.round(((c.kmEvObtenidos ?? 0) / c.kwhCargados) * 100) / 100,
+    }));
+}
+
+export function mergeEnergyEfficiencyForChart(
+  fuelPoints: RefillEfficiencyPoint[],
+  evPoints: ChargeEfficiencyPoint[],
+): EnergyEfficiencyChartPoint[] {
+  const maxLen = Math.max(fuelPoints.length, evPoints.length);
+  if (maxLen === 0) return [];
+  return Array.from({ length: maxLen }, (_, i) => ({
+    label: `#${i + 1}`,
+    kmL: fuelPoints[i]?.kmL ?? null,
+    kmKwh: evPoints[i]?.kmKwh ?? null,
+  }));
 }
 
 // ── Formato KPI ─────────────────────────────────────────────────────────────

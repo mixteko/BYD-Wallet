@@ -21,6 +21,9 @@ import {
   calculateEfficiencyAndCosts,
   buildMonthlyExpenseBreakdown12,
   buildDailyExpenseLast7Days,
+  buildFuelEfficiencyHistory,
+  buildEvEfficiencyHistory,
+  mergeEnergyEfficiencyForChart,
   formatCostoPorKm,
   formatTarifaKwh,
   getCentroEnergiaCostos,
@@ -2488,10 +2491,12 @@ function GastoPorMes({
       otrosRows,
     ).map((m) => ({
       mes: m.label,
-      gasto: Math.round((m.gasolina + m.electricidad + m.mantenimiento + m.otros) * 100) / 100,
+      gasolina: Math.round(m.gasolina * 100) / 100,
+      electricidad: Math.round(m.electricidad * 100) / 100,
+      mantenimiento: Math.round(m.mantenimiento * 100) / 100,
+      otros: Math.round(m.otros * 100) / 100,
     }));
   }, [gasolinaList, periodosElectricos, cargasList, mantenimientoRows, otrosRows]);
-
   return (
     <ChartCard title="Gasto por mes">
       <ResponsiveContainer width="100%" height={130}>
@@ -2501,9 +2506,29 @@ function GastoPorMes({
           <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
-            formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
+            formatter={(value: unknown, name: unknown) => {
+              const labels: Record<string, string> = {
+                gasolina: "Gasolina",
+                electricidad: "Electricidad BYD",
+                mantenimiento: "Mantenimiento",
+                otros: "Otros costos",
+              };
+              return [formatCurrency(Number(value)), labels[String(name)] ?? String(name)];
+            }}
           />
-          <Bar dataKey="gasto" fill="#12b8a0" radius={[3, 3, 0, 0]} opacity={0.85} />
+          <Legend wrapperStyle={{ paddingTop: 2 }} formatter={(value) => {
+              const labels: Record<string, string> = {
+                gasolina: "Gasolina",
+                electricidad: "Electricidad BYD",
+                mantenimiento: "Mantenimiento",
+                otros: "Otros costos",
+              };
+              return <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{labels[String(value)] ?? value}</span>;
+            }} />
+          <Bar dataKey="gasolina" stackId="total" fill="#f59e0b" opacity={0.85} name="gasolina" />
+          <Bar dataKey="electricidad" stackId="total" fill="#34d399" opacity={0.85} name="electricidad" />
+          <Bar dataKey="mantenimiento" stackId="total" fill="#60a5fa" opacity={0.85} name="mantenimiento" />
+          <Bar dataKey="otros" stackId="total" fill="#c084fc" opacity={0.85} radius={[3, 3, 0, 0]} name="otros" />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -2512,39 +2537,45 @@ function GastoPorMes({
 
 function RendimientoHistorico({
   gasolinaList,
-  rendimientoKmL,
-  rendimientoKmKwh,
+  cargasList,
 }: {
   gasolinaList: GasolinaEntry[];
-  rendimientoKmL: number;
-  rendimientoKmKwh: number;
+  cargasList: CargaEntry[];
 }) {
   const data = useMemo(() => {
-    const entries = gasolinaList
-      .filter((e) => e.litros > 0 && e.kilometraje > 0 && e.costo > 0)
-      .slice()
-      .sort((a, b) => dateSortValue(a.fecha) - dateSortValue(b.fecha))
-      .map((e, i) => ({
-        n: `#${i + 1}`,
-        kmL: Math.round((e.litros > 0 ? (e.kilometraje / e.litros) * 0.1 : 0) * 10) / 10,
-        kmKwh: rendimientoKmKwh,
-      }));
-    return entries.length > 0 ? entries : [{ n: "#1", kmL: rendimientoKmL, kmKwh: rendimientoKmKwh }];
-  }, [gasolinaList, rendimientoKmL, rendimientoKmKwh]);
+    const fuelPoints = buildFuelEfficiencyHistory(gasolinaList);
+    const evPoints = buildEvEfficiencyHistory(cargasList);
+    return mergeEnergyEfficiencyForChart(fuelPoints, evPoints);
+  }, [gasolinaList, cargasList]);
+
+  if (data.length === 0) {
+    return (
+      <ChartCard title="Rendimiento histórico">
+        <p className="py-8 text-center text-xs text-white/30">
+          Datos insuficientes para calcular rendimiento energético
+        </p>
+      </ChartCard>
+    );
+  }
 
   return (
     <ChartCard title="Rendimiento histórico">
       <ResponsiveContainer width="100%" height={130}>
         <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-          <XAxis dataKey="n" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} domain={[0, "auto"]} width={28} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
+            formatter={(value: unknown, name: unknown) => {
+              if (value == null || value === "") return ["—", String(name)];
+              const label = name === "kmL" ? "km/L (gasolina)" : "km/kWh (eléctrico)";
+              return [`${value}`, label];
+            }}
           />
           <Legend wrapperStyle={{ paddingTop: 2 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{value}</span>} />
-          <Line type="monotone" dataKey="kmL" stroke="#12b8a0" strokeWidth={1.5} dot={false} name="km/L (gasolina)" />
-          <Line type="monotone" dataKey="kmKwh" stroke="#0ea5e9" strokeWidth={1.5} dot={false} name="km/kWh (eléctrico)" />
+          <Line type="monotone" dataKey="kmL" stroke="#12b8a0" strokeWidth={1.5} dot={false} connectNulls={false} name="km/L (gasolina)" />
+          <Line type="monotone" dataKey="kmKwh" stroke="#0ea5e9" strokeWidth={1.5} dot={false} connectNulls={false} name="km/kWh (eléctrico)" />
         </LineChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -2594,29 +2625,95 @@ function ComparativoGasolinaVsElectricidad({
   );
 }
 
+function InfoTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    const tipW = 264;
+    let left = rect.left + rect.width / 2 - tipW / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+    const tipH = tipRef.current?.offsetHeight ?? 96;
+    let top = rect.bottom + 8;
+    if (top + tipH > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - tipH - 8);
+    }
+    setPos({ top, left });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onScroll = () => setOpen(false);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open || !tipRef.current) return;
+    updatePosition();
+  }, [open, text, updatePosition]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label="Ayuda"
+        className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-[8px] leading-none text-white/45 transition-colors hover:border-byd-500/40 hover:text-byd-400"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        ?
+      </button>
+      {open && createPortal(
+        <div
+          ref={tipRef}
+          role="tooltip"
+          style={{ top: pos.top, left: pos.left, width: 264 }}
+          className="pointer-events-none fixed z-[200] rounded-lg border border-white/15 bg-[#151b26] p-2.5 text-[10px] leading-relaxed text-white/85 shadow-[0_8px_32px_rgba(0,0,0,0.55)]"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          {text.split("\n").map((line, i) => (
+            <p key={i} className={i > 0 ? "mt-1" : ""}>{line}</p>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function KpiConAyuda({
   icon,
   label,
   value,
-  description,
+  helpText,
 }: {
   icon: string;
   label: string;
   value: string;
-  description: string;
+  helpText: string;
 }) {
   return (
     <div className="rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2">
       <p className="mb-0.5 flex items-center gap-1 text-[9px] text-white/35">
         <span>{icon}</span>
-        <span>{label}</span>
-        <span
-          title={description}
-          className="cursor-help text-[10px] text-white/25 transition-colors hover:text-byd-400/70"
-          aria-label={description}
-        >
-          ⓘ
-        </span>
+        <span className="min-w-0 flex-1 leading-tight">{label}</span>
+        <InfoTooltip text={helpText} />
       </p>
       <p className="text-sm font-semibold text-white/85">{value}</p>
     </div>
@@ -2688,19 +2785,19 @@ function EficienciaCostosPanel({
             icon="⛽"
             label="Costo total de gasolina"
             value={stats.hasGasolina ? formatCurrency(stats.gastoGasolina) : "Sin datos de gasolina"}
-            description="Suma de todas las cargas de gasolina registradas."
+            helpText="Qué: gasto acumulado en combustible.\nFórmula: Σ costo de cada recarga de gasolina.\nFuentes: recargas Supabase (tipo gasolina) vía calculateFuelCost()."
           />
           <KpiConAyuda
             icon="⚡"
             label="Costo total de electricidad"
             value={stats.hasElectricidad ? formatCurrency(stats.gastoElectricoByd) : "Sin datos eléctricos"}
-            description="Suma del costo utilizado para cargar el BYD."
+            helpText="Qué: costo eléctrico total del BYD.\nFórmula: Centro de Energía (CFE casa) + Σ cargas EV externas.\nFuentes: periodos CFE + cargas EV vía calculateElectricCost()."
           />
           <KpiConAyuda
             icon="💰"
             label="Total invertido en energía"
             value={sinDatosEnergia ? "Faltan registros para calcular" : formatCurrency(stats.totalEnergia)}
-            description="Es el costo real de mover el vehículo."
+            helpText="Qué: costo real de mover el vehículo con energía.\nFórmula: Gasto gasolina + Gasto eléctrico BYD.\nFuentes: calculateEfficiencyAndCosts() en lib/calculations.ts."
           />
           <KpiConAyuda
             icon="🚗"
@@ -2712,7 +2809,7 @@ function EficienciaCostosPanel({
                   ? `$${stats.costoPromedioPorKm.toFixed(2)}/km`
                   : "—"
             }
-            description="Indica cuánto cuesta recorrer un kilómetro."
+            helpText="Qué: cuánto cuesta recorrer 1 km con gasolina + electricidad.\nFórmula: Total invertido en energía ÷ km recorridos.\nFuentes: odómetro de recargas y registros de energía."
           />
           <KpiConAyuda
             icon="📍"
@@ -2722,7 +2819,7 @@ function EficienciaCostosPanel({
                 ? "Faltan registros para calcular"
                 : formatCurrency(stats.costoPor100Km)
             }
-            description="Permite comparar fácilmente el costo de este vehículo con cualquier otro."
+            helpText="Qué: costo de energía por cada 100 km.\nFórmula: Costo promedio por km × 100.\nFuentes: mismo cálculo del panel Eficiencia y Costos."
           />
           <KpiConAyuda
             icon="📈"
@@ -2732,7 +2829,7 @@ function EficienciaCostosPanel({
                 ? "Faltan registros para calcular"
                 : `${stats.eficienciaGlobal} km/L`
             }
-            description="Representa los kilómetros recorridos por cada litro de gasolina consumido, considerando el apoyo del sistema híbrido."
+            helpText="Qué: km recorridos por litro de gasolina (modo híbrido).\nFórmula: km recorridos ÷ litros totales cargados.\nFuentes: recargas de gasolina vía calculateGlobalEfficiency()."
           />
         </div>
 
@@ -3312,15 +3409,15 @@ function RegistrarServicioForm({
 }
 
 // ── KpiChip ───────────────────────────────────────────────────────────────
-function KpiChip({ label, value, sub, color, colorHex, title }: {
-  label: string; value: string; sub?: string; color?: string; colorHex?: string; title?: string;
+function KpiChip({ label, value, sub, color, colorHex, helpText }: {
+  label: string; value: string; sub?: string; color?: string; colorHex?: string; helpText?: string;
 }) {
   return (
-    <div
-      className="flex min-h-[52px] flex-col justify-center rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-1.5"
-      title={title}
-    >
-      <p className="mb-0.5 truncate text-[9px] font-medium uppercase leading-none tracking-wider text-white/30">{label}</p>
+    <div className="flex min-h-[52px] flex-col justify-center rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-1.5">
+      <p className="mb-0.5 flex items-center gap-1 truncate text-[9px] font-medium uppercase leading-none tracking-wider text-white/30">
+        <span className="truncate">{label}</span>
+        {helpText && <InfoTooltip text={helpText} />}
+      </p>
       <p className={`truncate text-[11px] font-bold leading-tight ${color || "text-white/75"}`}
          style={colorHex ? { color: colorHex } : {}}>
         {value}
@@ -6115,16 +6212,34 @@ export default function Home() {
             value={formatCurrency(gastoAnualIntegrado)}
             sub="Gasolina + electricidad + mantenimiento + otros"
             color="text-byd-400"
+            helpText="Qué: gasto total del año calendario actual.\nFórmula: Σ gasolina + electricidad BYD + mantenimiento + otros (año en curso).\nFuentes: calculateAnnualTotalCost() con recargas, CFE, cargas EV, mantenimiento y otros costos."
           />
           <KpiChip
             label="Costo por km"
             value={formatCostoPorKm(costoPorKmIntegrado)}
             sub="Promedio global"
-            title="Costo promedio real considerando todos los gastos registrados del vehículo."
+            helpText="Qué: costo promedio por km con todos los gastos del vehículo.\nFórmula: Total invertido ÷ km recorridos.\nFuentes: calculateTotalVehicleCost() y calculateKmTraveled()."
           />
-          <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
-          <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
-          <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
+          <KpiChip
+            label="Odómetro"
+            value={`${kpis.odometroActual.toLocaleString()} km`}
+            sub="Lectura actual"
+            helpText="Qué: kilometraje más reciente registrado.\nFórmula: máximo odómetro_km en recargas.\nFuentes: tabla recargas de Supabase."
+          />
+          <KpiChip
+            label="Salud del vehículo"
+            value={`${healthScoreGlobal}`}
+            sub={healthLabelGlobal}
+            colorHex={healthColorGlobal}
+            helpText="Qué: indicador de 0–100 según mantenimiento y servicios.\nFórmula: 100 menos penalizaciones por servicio vencido/próximo y falta de registros.\nFuentes: odómetro actual, calendario BYD King y historial de mantenimiento."
+          />
+          <KpiChip
+            label="Próximo servicio"
+            value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"}
+            sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal}
+            color={statusGlobal.color}
+            helpText="Qué: siguiente servicio oficial pendiente por kilometraje.\nFórmula: próximo hito del calendario BYD − odómetro actual.\nFuentes: calendario BYD King y lectura de odómetro."
+          />
           <KpiChip
             label="Gasto eléctrico"
             value={formatCurrency(gastoElectricoResuelto.total)}
@@ -6140,6 +6255,7 @@ export default function Home() {
                     : "Sin datos eléctricos"
             }
             color="text-green-400/80"
+            helpText="Qué: costo eléctrico total del BYD.\nFórmula: Centro de Energía (CFE casa) + cargas EV externas.\nFuentes: calculateElectricCost() con periodos CFE y cargas EV."
           />
         </section>
 
@@ -6405,8 +6521,7 @@ export default function Home() {
               </div>
               <RendimientoHistorico
                 gasolinaList={gasolinaList}
-                rendimientoKmL={kpis.rendimientoKmL}
-                rendimientoKmKwh={settings.rendimientoKmKwh}
+                cargasList={cargasList}
               />
               <ComparativoGasolinaVsElectricidad
                 gasolinaList={gasolinaList}

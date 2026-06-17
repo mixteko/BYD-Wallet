@@ -64,10 +64,12 @@ type HistoryFilter = "hoy" | "semana" | "mes" | "ano";
 interface HistoryRow {
   id: string;
   fecha: string;
+  fecha_hora?: string | null;
   tipo: "Gasolina" | "Carga EV" | "Mantenimiento";
   importe: number;
   observaciones: string;
   source: "gasolina" | "cargas" | "mantenimiento";
+  odometro_km: number;
 }
 
 interface TicketEntry {
@@ -138,6 +140,38 @@ function initializeData(): void {
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
+function formatFechaMX(fecha: string | null | undefined, fecha_hora: string | null | undefined): string {
+  // Convert DD/MM/YY to DD/MM/YYYY. Falls back to fecha_hora if fecha is empty.
+  const f = fecha?.trim();
+  const fh = fecha_hora?.trim();
+
+  if (f) {
+    const match = f.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (match) {
+      const day = match[1].padStart(2, "0");
+      const month = match[2].padStart(2, "0");
+      let year = parseInt(match[3], 10);
+      year += year >= 50 ? 1900 : 2000;
+      return `${day}/${month}/${year}`;
+    }
+    return f;
+  }
+
+  if (fh) {
+    // fecha_hora could be ISO like "2026-03-29T17:48:00" — extract date part
+    const d = new Date(fh);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString("es-MX", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+    return fh;
+  }
+
+  return "Sin fecha";
+}
 function parseDDMMYY(fecha: string): Date {
   // Convert DD/MM/YY to proper Date. Examples: 25/08/25 → 25/08/2025
   const match = fecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
@@ -1093,7 +1127,7 @@ function HistoryFilterButton({
   );
 }
 
-function HistoryTable() {
+function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
   const [filter, setFilter] = useState<HistoryFilter>("mes");
 
   const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
@@ -1103,6 +1137,18 @@ function HistoryTable() {
   const now = new Date();
 
   const allRows: HistoryRow[] = [
+    // Supabase recargas → Gasolina entries
+    ...recargas.map((r) => ({
+      id: String(r.id),
+      fecha: r.fecha,
+      fecha_hora: r.fecha_hora,
+      tipo: "Gasolina" as const,
+      importe: Number(r.costo_total_mxn),
+      observaciones: `${r.gasolinera || "Recarga"} · ${Number(r.litros)} L · ${Number(r.odometro_km).toLocaleString()} km`,
+      source: "gasolina" as const,
+      odometro_km: Number(r.odometro_km),
+    })),
+    // localStorage entries
     ...gasolina.map((e) => ({
       id: e.id,
       fecha: e.fecha,
@@ -1110,6 +1156,7 @@ function HistoryTable() {
       importe: e.costo,
       observaciones: `${e.concepto} · ${e.litros} L · ${e.kilometraje.toLocaleString()} km`,
       source: "gasolina" as const,
+      odometro_km: e.kilometraje,
     })),
     ...cargas.map((e) => ({
       id: e.id,
@@ -1118,6 +1165,7 @@ function HistoryTable() {
       importe: e.costo,
       observaciones: `${e.tipo} · ${e.kwhCargados} kWh (${e.pctInicial}% → ${e.pctFinal}%)`,
       source: "cargas" as const,
+      odometro_km: e.kmEvObtenidos,
     })),
     ...mantenimiento.map((e) => ({
       id: e.id,
@@ -1126,18 +1174,23 @@ function HistoryTable() {
       importe: e.costo,
       observaciones: `${e.servicio} · ${e.km.toLocaleString()} km`,
       source: "mantenimiento" as const,
+      odometro_km: e.km,
     })),
   ];
 
-  const filtered = allRows.filter((row) => {
-    const d = toDate(row.fecha);
+  // Sort by odometro_km descending (highest first)
+  const sortedRows = [...allRows].sort((a, b) => b.odometro_km - a.odometro_km);
+
+  const filtered = sortedRows.filter((row) => {
+    const dateStr = row.fecha || row.fecha_hora || "";
+    const d = toDate(dateStr);
     switch (filter) {
       case "hoy": return isSameDay(d, now);
       case "semana": return isThisWeek(d, now);
       case "mes": return isThisMonth(d, now);
       case "ano": return isThisYear(d, now);
     }
-  }).sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
+  });
   const totalImporte = filtered.reduce((acc, r) => acc + r.importe, 0);
 
   const tipoIcon: Record<string, string> = {
@@ -1178,7 +1231,7 @@ function HistoryTable() {
           <tbody>
             {filtered.map((row) => (
               <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
-                <td className="px-4 py-3 text-white/60">{formatDateShort(row.fecha)}</td>
+                <td className="px-4 py-3 text-white/60">{formatFechaMX(row.fecha, row.fecha_hora)}</td>
                 <td className="px-4 py-3">
                   <span className={`flex items-center gap-1.5 text-sm font-medium ${tipoColor[row.tipo]}`}>
                     {tipoIcon[row.tipo]} {row.tipo}
@@ -1202,7 +1255,7 @@ function HistoryTable() {
               <span className={`flex items-center gap-1 text-sm font-medium ${tipoColor[row.tipo]}`}>
                 {tipoIcon[row.tipo]} {row.tipo}
               </span>
-              <span className="text-xs text-white/40">{formatDateShort(row.fecha)}</span>
+              <span className="text-xs text-white/40">{formatFechaMX(row.fecha, row.fecha_hora)}</span>
             </div>
             <p className="mb-1 text-[13px] text-white/50">{row.observaciones}</p>
             <p className="text-right text-sm font-semibold text-white">{formatCurrency(row.importe)}</p>
@@ -1912,7 +1965,7 @@ export default function Home() {
           )}
 
           {/* ── Historial ── */}
-          {section === "historial" && <HistoryTable />}
+          {section === "historial" && <HistoryTable recargas={recargas} />}
 
           {/* ── Tickets ── */}
           {section === "tickets" && <TicketsView onOpenForm={() => setFormModal("ticket")} />}

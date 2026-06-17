@@ -117,6 +117,29 @@ Actualmente no se usa en el código. Las cargas eléctricas se almacenan en `loc
 
 ---
 
+## Tabla: `periodos_electricos` (pendiente de creación)
+
+Tabla para registrar recibos bimestrales de luz. **No creada todavía.** El SQL está en `supabase/periodos_electricos.sql`.
+
+### Columnas
+
+| Columna | Tipo SQL | Nulable | Descripción |
+|---|---|---|---|
+| `id` | `bigint` | NO | Clave primaria |
+| `fecha_inicio` | `date` | NO | Fecha de inicio del periodo |
+| `fecha_fin` | `date` | NO | Fecha de fin del periodo |
+| `kwh_bimestre` | `numeric(10,2)` | NO | Consumo total del bimestre en kWh |
+| `costo_total_mxn` | `numeric(10,2)` | NO | Costo total del recibo en MXN |
+| `costo_kwh_mxn` | `numeric(10,4)` | — | Generado automáticamente: `costo_total_mxn / kwh_bimestre` |
+| `proveedor` | `text` | YES | Default 'CFE' |
+| `notas` | `text` | YES | Notas opcionales |
+| `created_at` | `timestamp` | YES | Fecha de creación |
+
+### Relaciones
+- Ninguna FK directa. Se relaciona lógicamente con `cargas_electricas` por rango de fechas (una carga EV cae dentro de un periodo eléctrico si su fecha está entre `fecha_inicio` y `fecha_fin`).
+
+---
+
 ## Resumen de relaciones
 
 - `recargas` → no tiene FK. Es un dataset independiente.

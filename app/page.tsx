@@ -748,20 +748,22 @@ function Modal({
   onClose,
   title,
   children,
+  wide = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   if (!isOpen) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
+      <div className={`relative my-4 w-full rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl ${wide ? "max-w-[880px]" : "max-w-md"}`}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-white">{title}</h3>
           <button
@@ -2127,68 +2129,84 @@ function RegistrarServicioForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Scheduled info */}
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg bg-white/[0.03] px-3 py-2">
-          <p className="text-[10px] text-white/35">Servicio programado</p>
-          <p className="font-medium text-white/70">{sched.km.toLocaleString()} km / {sched.meses} meses</p>
+      {/* Two-column layout on wide modal: left = fields, right = checklist */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        {/* Left: service info + basic fields */}
+        <div className="flex-shrink-0 space-y-3 sm:w-64">
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-1">
+            <div className="rounded-lg bg-white/[0.03] px-3 py-2">
+              <p className="text-[10px] text-white/35">Servicio programado</p>
+              <p className="font-medium text-white/70">{sched.km.toLocaleString()} km · {sched.meses} meses</p>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] px-3 py-2">
+              <p className="text-[10px] text-white/35">Costo estimado</p>
+              <p className="font-medium text-white/70">{formatCurrency(sched.costo)}</p>
+            </div>
+          </div>
+          <InputField label="Fecha realizada" type="date" value={fecha} onChange={setFecha} required />
+          <InputField label="Odómetro (km)" type="number" value={odometro} onChange={setOdometro} required />
+          <InputField label="Costo real ($)" type="number" step="0.01" min="0" value={costoReal} onChange={setCostoReal} required />
+          <InputField label="Agencia / Taller" type="text" value={agencia} onChange={setAgencia} />
+          <InputField label="Notas generales" type="text" value={notas} onChange={setNotas} />
         </div>
-        <div className="rounded-lg bg-white/[0.03] px-3 py-2">
-          <p className="text-[10px] text-white/35">Costo estimado</p>
-          <p className="font-medium text-white/70">{formatCurrency(sched.costo)}</p>
-        </div>
-      </div>
 
-      {/* Basic fields */}
-      <InputField label="Fecha realizada" type="date" value={fecha} onChange={setFecha} required />
-      <InputField label="Odómetro realizado (km)" type="number" value={odometro} onChange={setOdometro} required />
-      <InputField label="Costo real ($)" type="number" step="0.01" min="0" value={costoReal} onChange={setCostoReal} required />
-      <InputField label="Agencia / Taller" type="text" value={agencia} onChange={setAgencia} />
-      <InputField label="Notas generales" type="text" value={notas} onChange={setNotas} />
+        {/* Right: checklist — grows to fill remaining space */}
+        <div className="min-w-0 flex-1">
 
       {/* Checklist */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium text-white/60">Checklist de servicio</p>
-          <span className="text-[11px] text-white/35">{donePct}% completado</span>
+      <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4">
+        {/* Header + progress */}
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-xs font-semibold text-white/70">Checklist de servicio</p>
+          <span className={`text-[11px] font-medium ${donePct === 100 ? "text-green-400" : donePct >= 50 ? "text-amber-400" : "text-white/35"}`}>
+            {donePct}% completado
+          </span>
         </div>
-        {/* Progress bar */}
         <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
           <div
-            className="h-full rounded-full bg-byd-400 transition-all duration-300"
+            className={`h-full rounded-full transition-all duration-300 ${donePct === 100 ? "bg-green-400" : "bg-byd-400"}`}
             style={{ width: `${donePct}%` }}
           />
         </div>
-        <div className="space-y-1.5">
+        {/* 2-col grid */}
+        <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
           {CHECKLIST_ITEMS.map((item) => {
             const state = checklist.find((c) => c.id === item.id)!;
             const showNota = expandNotas === item.id;
             return (
-              <div key={item.id} className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+              <div
+                key={item.id}
+                className={`rounded-lg border px-2.5 py-1.5 transition-colors ${
+                  state.realizado ? "border-byd-500/20 bg-byd-500/[0.06]" : "border-white/5 bg-white/[0.02]"
+                }`}
+              >
                 <div className="flex items-center gap-2">
+                  {/* Checkbox */}
                   <button
                     type="button"
                     onClick={() => toggleItem(item.id)}
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[11px] transition-colors ${
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold transition-colors ${
                       state.realizado
-                        ? "border-byd-500/50 bg-byd-500/20 text-byd-400"
-                        : "border-white/10 bg-white/[0.03] text-white/20"
+                        ? "border-byd-400/60 bg-byd-500/25 text-byd-400"
+                        : "border-white/15 bg-transparent text-transparent"
                     }`}
                   >
-                    {state.realizado ? "✓" : ""}
+                    ✓
                   </button>
-                  <span className={`flex-1 text-xs ${state.realizado ? "text-white/70" : "text-white/40"}`}>
+                  {/* Label */}
+                  <span className={`flex-1 truncate text-[11px] ${state.realizado ? "text-white/75" : "text-white/40"}`}>
                     {item.label}
                     {item.importante && (
-                      <span className="ml-1.5 text-[9px] font-medium text-amber-400/70">★</span>
+                      <span className="ml-1 text-[9px] text-amber-400/50">★</span>
                     )}
                   </span>
+                  {/* Note toggle */}
                   <button
                     type="button"
                     onClick={() => setExpandNotas(showNota ? null : item.id)}
-                    className="text-[10px] text-white/25 hover:text-white/50"
+                    className="shrink-0 rounded px-1 py-0.5 text-[9px] text-white/20 transition-colors hover:bg-white/5 hover:text-white/45"
                   >
-                    {showNota ? "▲ nota" : "▼ nota"}
+                    {showNota ? "▲" : "📝"}
                   </button>
                 </div>
                 {showNota && (
@@ -2196,16 +2214,18 @@ function RegistrarServicioForm({
                     type="text"
                     value={state.nota ?? ""}
                     onChange={(e) => setItemNota(item.id, e.target.value)}
-                    placeholder="Nota opcional…"
-                    className="mt-1.5 w-full rounded border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none placeholder:text-white/20 focus:border-byd-500/40"
+                    placeholder="Nota…"
+                    className="mt-1 w-full rounded border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70 outline-none placeholder:text-white/20 focus:border-byd-500/40"
                   />
                 )}
               </div>
             );
           })}
         </div>
-        <p className="mt-1.5 text-[10px] text-white/20">★ = punto importante</p>
+        <p className="mt-2 text-[9px] text-white/20">★ = punto de seguridad importante</p>
       </div>
+        </div>{/* /right col */}
+      </div>{/* /flex row */}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
       <button
@@ -3645,6 +3665,7 @@ export default function Home() {
         isOpen={registrarServicioKm !== null}
         onClose={() => setRegistrarServicioKm(null)}
         title="🔧 Registrar servicio"
+        wide
       >
         {registrarServicioKm !== null && (
           <RegistrarServicioForm
@@ -3659,6 +3680,7 @@ export default function Home() {
         isOpen={editingMantenimiento !== null}
         onClose={() => setEditingMantenimiento(null)}
         title="✏️ Editar servicio"
+        wide
       >
         {editingMantenimiento !== null && (
           <RegistrarServicioForm

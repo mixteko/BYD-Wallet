@@ -308,6 +308,7 @@ async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRo
   const { data, error } = await sb
     .from("periodos_electricos")
     .select("*")
+    .order("fecha_fin", { ascending: false })
     .order("fecha_inicio", { ascending: false });
 
   if (error) {
@@ -329,6 +330,20 @@ async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRo
 async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">): Promise<boolean> {
   const sb = getSupabaseClient();
   if (!sb) return false;
+
+  // Check for overlapping periods
+  const { data: existing } = await sb
+    .from("periodos_electricos")
+    .select("id, fecha_inicio, fecha_fin");
+  if (existing) {
+    for (const p of existing as { id: number; fecha_inicio: string; fecha_fin: string }[]) {
+      if (row.fecha_inicio <= p.fecha_fin && row.fecha_fin >= p.fecha_inicio) {
+        console.error("[BYD Wallet] Traslape detectado con periodo id:", p.id, p.fecha_inicio, "-", p.fecha_fin);
+        return false;
+      }
+    }
+  }
+
   const { error } = await sb.from("periodos_electricos").insert(row as never);
   if (error) {
     console.error("[BYD Wallet] Error al insertar periodo eléctrico:", error.message);
@@ -343,6 +358,21 @@ async function updatePeriodoElectrico(
 ): Promise<boolean> {
   const sb = getSupabaseClient();
   if (!sb) return false;
+
+  // Check for overlapping periods (exclude self)
+  const { data: existing } = await sb
+    .from("periodos_electricos")
+    .select("id, fecha_inicio, fecha_fin")
+    .neq("id", id);
+  if (existing) {
+    for (const p of existing as { id: number; fecha_inicio: string; fecha_fin: string }[]) {
+      if (row.fecha_inicio <= p.fecha_fin && row.fecha_fin >= p.fecha_inicio) {
+        console.error("[BYD Wallet] Traslape detectado con periodo id:", p.id, p.fecha_inicio, "-", p.fecha_fin);
+        return false;
+      }
+    }
+  }
+
   console.log("[BYD Wallet] Actualizando periodo eléctrico:", { id, payload: row });
   const { error } = await sb.from("periodos_electricos").update(row as never).eq("id", id);
   if (error) {
@@ -1846,7 +1876,7 @@ function ReciboForm({
     });
     setSaving(false);
     if (!success) {
-      setError("Error al guardar el recibo. Revisa la consola para más detalles.");
+      setError("No se pudo guardar. Verifica que no se traslape con otro periodo y revisa la consola.");
     }
   };
 
@@ -1880,6 +1910,18 @@ function ReciboForm({
       </div>
     </form>
   );
+}
+
+function getPeriodoAlerts(r: PeriodoElectricoRow): string[] {
+  const alerts: string[] = [];
+  if (r.costo_kwh_mxn != null && r.costo_kwh_mxn < 1) alerts.push("Costo/kWh muy bajo");
+  if (r.costo_kwh_mxn != null && r.costo_kwh_mxn > 10) alerts.push("Costo/kWh muy alto");
+  if (r.kwh_bimestre > 1000) alerts.push("Consumo anormalmente alto");
+  const diffMs = new Date(r.fecha_fin).getTime() - new Date(r.fecha_inicio).getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (diffDays > 0 && diffDays < 20) alerts.push("Periodo muy corto (" + Math.round(diffDays) + " días)");
+  if (diffDays > 70) alerts.push("Periodo muy largo (" + Math.round(diffDays) + " días)");
+  return alerts;
 }
 
 // ── Centro de Energía component ──────────────────────────────────────────
@@ -2043,6 +2085,13 @@ function SeccionEnergia({
                 </div>
               )}
             </div>
+            {ultimoRecibo && getPeriodoAlerts(ultimoRecibo).length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {getPeriodoAlerts(ultimoRecibo).map((a, i) => (
+                  <p key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</p>
+                ))}
+              </div>
+            )}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
@@ -2200,6 +2249,13 @@ function SeccionEnergia({
                         <span>Tarifa: {r.tarifa || "1C"}</span>
                         <span>{r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
                       </div>
+                      {getPeriodoAlerts(r).length > 0 && (
+                        <div className="mt-0.5 flex gap-1.5">
+                          {getPeriodoAlerts(r).map((a, i) => (
+                            <span key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="ml-2 flex shrink-0 gap-1">
                       <button

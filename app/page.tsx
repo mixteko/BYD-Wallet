@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -720,7 +720,7 @@ function NavTab({
   return (
     <button
       onClick={onClick}
-      className={`relative whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm ${
+      className={`relative whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all duration-200 ${
         active
           ? "bg-byd-500/15 text-byd-400 shadow-[inset_0_0_0_1px_rgba(18,184,160,0.25)]"
           : "text-white/40 hover:bg-white/[0.04] hover:text-white/70"
@@ -793,9 +793,9 @@ function Modal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative my-4 w-full rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl sm:p-5 ${wide ? "max-w-[880px]" : "max-w-md"}`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white">{title}</h3>
+      <div className={`relative my-3 w-full rounded-xl border border-white/10 bg-[#0d1117] p-3 shadow-2xl sm:p-4 ${wide ? "max-w-[880px]" : "max-w-md"}`}>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-white/80">{title}</h3>
           <button
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
@@ -851,10 +851,10 @@ function GasolinaForm({
       <InputField label="Kilometraje" type="number" value={kilometraje} onChange={setKilometraje} required />
       <InputField label="Gasolinera" type="text" value={concepto} onChange={setConcepto} placeholder="Ej. Pemex, Shell..." required />
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
+        <button type="submit" className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400">
           {isEdit ? "Actualizar" : "Guardar"}
         </button>
       </div>
@@ -914,7 +914,7 @@ function CargaForm({
         <select
           value={tipo}
           onChange={(e) => setTipo(e.target.value as "CCS2" | "AC 7kW" | "AC 22kW")}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
+          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
         >
           <option value="CCS2">CCS2 — Carga rápida</option>
           <option value="AC 7kW">AC 7kW — Carga lenta</option>
@@ -951,10 +951,10 @@ function CargaForm({
 
       <InputField label="Costo total ($)" type="number" value={costoTotal} onChange={setCostoTotal} required />
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
+        <button type="submit" className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400">
           Guardar
         </button>
       </div>
@@ -997,17 +997,17 @@ function MantenimientoForm({
         <select
           value={estado}
           onChange={(e) => setEstado(e.target.value as "completado" | "pendiente")}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
+          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
         >
           <option value="pendiente">Pendiente</option>
           <option value="completado">Completado</option>
         </select>
       </div>
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
+        <button type="submit" className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400">
           Guardar
         </button>
       </div>
@@ -1070,7 +1070,7 @@ function TicketForm({
         <select
           value={categoria}
           onChange={(e) => setCategoria(e.target.value as TicketEntry["categoria"])}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
+          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
         >
           <option value="gasolina">Gasolina</option>
           <option value="carga">Carga eléctrica</option>
@@ -1100,10 +1100,10 @@ function TicketForm({
         </label>
       </div>
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" disabled={!imageBase64} className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
+        <button type="submit" disabled={!imageBase64} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
           Guardar ticket
         </button>
       </div>
@@ -1145,11 +1145,11 @@ function SettingsForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div>
         <label className="mb-1 block text-xs font-medium text-white/50">Modelo del vehículo</label>
         <select value={modelo} onChange={(e) => setModelo(e.target.value as VehicleSettings["modelo"])}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50">
+          className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50">
           <option value="king-gl">BYD King GL</option>
           <option value="king-gs">BYD King GS — Configurable</option>
           <option value="personalizado">Personalizado</option>
@@ -1173,7 +1173,7 @@ function SettingsForm({
               min="1"
               value={capacidadBateria}
               onChange={(e) => setCapacidadBateria(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors focus:border-byd-500/50"
+              className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
               required
             />
           </div>
@@ -1210,10 +1210,10 @@ function SettingsForm({
       <InputField label="Kilometraje total del vehículo" type="number" value={totalKm} onChange={setTotalKm} required />
 
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400">
+        <button type="submit" className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400">
           Guardar configuración
         </button>
       </div>
@@ -1270,7 +1270,7 @@ function InputField({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-white/50">{label}</label>
+      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-white/40">{label}</label>
       <input
         type={type}
         step={step}
@@ -1280,7 +1280,7 @@ function InputField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-white/20 focus:border-byd-500/50"
+        className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors placeholder:text-white/20 focus:border-byd-500/50"
       />
     </div>
   );
@@ -1297,14 +1297,14 @@ function SectionHeader({
   onAdd: () => void;
 }) {
   return (
-    <div className="mb-3 flex items-center justify-between">
+    <div className="mb-2.5 flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <span className="text-[10px] text-white/30">{count} registros</span>
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">{title}</h2>
+        <span className="text-[9px] text-white/25">{count} registros</span>
       </div>
       <button
         onClick={onAdd}
-        className="flex items-center gap-1 rounded-lg bg-byd-500/15 px-2.5 py-1 text-xs font-medium text-byd-400 transition-colors hover:bg-byd-500/25"
+        className="flex items-center gap-1 rounded-lg bg-byd-500/15 px-2 py-1 text-[10px] font-medium text-byd-400 transition-colors hover:bg-byd-500/25"
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="12" y1="5" x2="12" y2="19" />
@@ -1329,7 +1329,7 @@ function HistoryFilterButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+      className={`rounded-lg px-2 py-1 text-[10px] font-medium transition-all ${
         active
           ? "bg-byd-500/15 text-byd-400 shadow-[inset_0_0_0_1px_rgba(18,184,160,0.25)]"
           : "text-white/40 hover:bg-white/[0.04] hover:text-white/70"
@@ -1421,9 +1421,9 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Historial completo</h2>
-        <div className="flex gap-1.5">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Historial completo</h2>
+        <div className="flex gap-1">
           <HistoryFilterButton active={filter === "hoy"} label="Hoy" onClick={() => setFilter("hoy")} />
           <HistoryFilterButton active={filter === "semana"} label="Semana" onClick={() => setFilter("semana")} />
           <HistoryFilterButton active={filter === "mes"} label="Mes" onClick={() => setFilter("mes")} />
@@ -1433,28 +1433,28 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
 
       {/* Desktop table */}
       <div className="hidden overflow-hidden rounded-xl border border-white/5 sm:block">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.03] text-[11px] font-medium uppercase tracking-wider text-white/30">
-              <th className="px-4 py-3">Fecha</th>
-              <th className="px-4 py-3">Tipo</th>
-              <th className="px-4 py-3 text-right">Importe</th>
-              <th className="px-4 py-3">Observaciones</th>
+            <tr className="border-b border-white/5 bg-white/[0.03] text-[9px] font-medium uppercase tracking-wider text-white/30">
+              <th className="px-3 py-2">Fecha</th>
+              <th className="px-3 py-2">Tipo</th>
+              <th className="px-3 py-2 text-right">Importe</th>
+              <th className="px-3 py-2">Observaciones</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((row) => (
               <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
-                <td className="px-4 py-3 text-white/60">{formatFechaMX(row.fecha, row.fecha_hora)}</td>
-                <td className="px-4 py-3">
-                  <span className={`flex items-center gap-1.5 text-sm font-medium ${tipoColor[row.tipo]}`}>
+                <td className="px-3 py-2 text-white/55">{formatFechaMX(row.fecha, row.fecha_hora)}</td>
+                <td className="px-3 py-2">
+                  <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo]}`}>
                     {tipoIcon[row.tipo]} {row.tipo}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right font-semibold text-white">
+                <td className="px-3 py-2 text-right font-semibold text-white/85">
                   {formatCurrency(row.importe)}
                 </td>
-                <td className="px-4 py-3 text-[13px] text-white/50">{row.observaciones}</td>
+                <td className="px-3 py-2 text-[11px] text-white/45">{row.observaciones}</td>
               </tr>
             ))}
           </tbody>
@@ -1462,31 +1462,31 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
       </div>
 
       {/* Mobile cards */}
-      <div className="space-y-2 sm:hidden">
+      <div className="space-y-1.5 sm:hidden">
         {filtered.map((row) => (
-          <div key={row.id} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-3">
-            <div className="mb-1 flex items-center justify-between">
-              <span className={`flex items-center gap-1 text-sm font-medium ${tipoColor[row.tipo]}`}>
+          <div key={row.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+            <div className="mb-0.5 flex items-center justify-between">
+              <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo]}`}>
                 {tipoIcon[row.tipo]} {row.tipo}
               </span>
-              <span className="text-xs text-white/40">{formatFechaMX(row.fecha, row.fecha_hora)}</span>
+              <span className="text-[10px] text-white/35">{formatFechaMX(row.fecha, row.fecha_hora)}</span>
             </div>
-            <p className="mb-1 text-[13px] text-white/50">{row.observaciones}</p>
-            <p className="text-right text-sm font-semibold text-white">{formatCurrency(row.importe)}</p>
+            <p className="mb-0.5 text-[11px] text-white/45">{row.observaciones}</p>
+            <p className="text-right text-xs font-semibold text-white/85">{formatCurrency(row.importe)}</p>
           </div>
         ))}
       </div>
 
       {filtered.length === 0 && (
-        <p className="py-10 text-center text-sm text-white/30">
+        <p className="py-6 text-center text-xs text-white/30">
           No hay movimientos en este período
         </p>
       )}
 
       {filtered.length > 0 && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
-          <span className="text-xs text-white/40">{filtered.length} movimientos</span>
-          <span className="text-sm font-bold text-white">{formatCurrency(totalImporte)}</span>
+        <div className="mt-2 flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3 py-1.5">
+          <span className="text-[10px] text-white/35">{filtered.length} movimientos</span>
+          <span className="text-xs font-bold text-byd-400">{formatCurrency(totalImporte)}</span>
         </div>
       )}
     </div>
@@ -1511,9 +1511,9 @@ function TicketDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl sm:p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-white">{ticket.titulo}</h3>
+      <div className="relative w-full max-w-lg rounded-xl border border-white/10 bg-[#0d1117] p-3 shadow-2xl sm:p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-white/80">{ticket.titulo}</h3>
           <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -1562,7 +1562,7 @@ function TicketDetailModal({
           )}
         </div>
 
-        <button onClick={onClose} className="mt-4 w-full rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10">
+        <button onClick={onClose} className="mt-3 w-full rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/10">
           Cerrar
         </button>
       </div>
@@ -1601,17 +1601,17 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
       <SectionHeader title="Tickets" count={tickets.length} onAdd={onOpenForm} />
 
       {sorted.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-12 text-white/30">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex flex-col items-center gap-2 py-8 text-white/30">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          <p className="text-sm">No hay tickets aún</p>
-          <p className="text-xs">Sube la foto de tu primer ticket</p>
+          <p className="text-xs">No hay tickets aún</p>
+          <p className="text-[10px]">Sube la foto de tu primer ticket</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {sorted.map((ticket) => (
             <div
               key={ticket.id}
@@ -1662,7 +1662,7 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">{title}</h3>
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">{title}</h3>
       {children}
     </div>
   );
@@ -1691,22 +1691,22 @@ function GastoPorDia() {
 
   return (
     <ChartCard title="Gasto por día (últimos 7 días)">
-      <ResponsiveContainer width="100%" height={180}>
-        <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={130}>
+        <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="gastoDia" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#12b8a0" stopOpacity={0.3} />
               <stop offset="100%" stopColor="#12b8a0" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+          <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
-            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
+            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
             formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
           />
-          <Area type="monotone" dataKey="gasto" stroke="#12b8a0" strokeWidth={2} fill="url(#gastoDia)" />
+          <Area type="monotone" dataKey="gasto" stroke="#12b8a0" strokeWidth={1.5} fill="url(#gastoDia)" />
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -1738,16 +1738,16 @@ function GastoPorMes() {
 
   return (
     <ChartCard title="Gasto por mes">
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+          <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
-            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
+            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
             formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
           />
-          <Bar dataKey="gasto" fill="#12b8a0" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="gasto" fill="#12b8a0" radius={[3, 3, 0, 0]} opacity={0.85} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -1773,20 +1773,17 @@ function RendimientoHistorico() {
 
   return (
     <ChartCard title="Rendimiento histórico">
-      <ResponsiveContainer width="100%" height={180}>
-        <LineChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="n" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, "auto"]} />
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+          <XAxis dataKey="n" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} domain={[0, "auto"]} width={28} />
           <Tooltip
-            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
+            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
           />
-          <Legend
-            wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}
-            formatter={(value) => <span style={{ color: "rgba(255,255,255,0.5)" }}>{value}</span>}
-          />
-          <Line type="monotone" dataKey="kmL" stroke="#12b8a0" strokeWidth={2} dot={{ r: 3, fill: "#12b8a0" }} name="km/L (gasolina)" />
-          <Line type="monotone" dataKey="kmKwh" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3, fill: "#0ea5e9" }} name="km/kWh (eléctrico)" />
+          <Legend wrapperStyle={{ paddingTop: 2 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{value}</span>} />
+          <Line type="monotone" dataKey="kmL" stroke="#12b8a0" strokeWidth={1.5} dot={false} name="km/L (gasolina)" />
+          <Line type="monotone" dataKey="kmKwh" stroke="#0ea5e9" strokeWidth={1.5} dot={false} name="km/kWh (eléctrico)" />
         </LineChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -1823,27 +1820,24 @@ function ComparativoGasolinaVsElectricidad() {
 
   return (
     <ChartCard title="Comparativo gasolina vs electricidad">
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+          <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
-            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
+            contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
             formatter={(value: any, name: any) => {
               const label = name === "gasolina" ? "Gasolina" : "Electricidad";
               return [formatCurrency(Number(value)), label];
             }}
           />
-          <Legend
-            wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}
-            formatter={(value) => {
+          <Legend wrapperStyle={{ paddingTop: 2 }} formatter={(value) => {
               const label = value === "gasolina" ? "Gasolina" : "Electricidad";
-              return <span style={{ color: "rgba(255,255,255,0.5)" }}>{label}</span>;
-            }}
-          />
-          <Bar dataKey="gasolina" fill="#12b8a0" radius={[4, 4, 0, 0]} name="gasolina" />
-          <Bar dataKey="electricidad" fill="#0ea5e9" radius={[4, 4, 0, 0]} name="electricidad" />
+              return <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 9 }}>{label}</span>;
+            }} />
+          <Bar dataKey="gasolina" fill="#12b8a0" radius={[3, 3, 0, 0]} opacity={0.85} name="gasolina" />
+          <Bar dataKey="electricidad" fill="#0ea5e9" radius={[3, 3, 0, 0]} opacity={0.85} name="electricidad" />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -1871,21 +1865,21 @@ function ConfirmDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl">
-        <h3 className="mb-2 text-base font-semibold text-white">{title}</h3>
-        <p className="mb-5 text-sm text-white/60">{message}</p>
+      <div className="relative w-full max-w-sm rounded-xl border border-white/10 bg-[#0d1117] p-3 shadow-2xl sm:p-4">
+        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-white/80">{title}</h3>
+        <p className="mb-4 text-xs text-white/50">{message}</p>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10"
+            className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="flex-1 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-400"
+            className="flex-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-400"
           >
             Eliminar
           </button>
@@ -1967,7 +1961,7 @@ function ReciboForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">
           {error}
@@ -1987,10 +1981,10 @@ function ReciboForm({
       <InputField label="Número de recibo" type="text" value={numRecibo} onChange={setNumRecibo} placeholder="Opcional" />
       <InputField label="Notas" type="text" value={notas} onChange={setNotas} placeholder="Opcional" />
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
           Cancelar
         </button>
-        <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-byd-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
+        <button type="submit" disabled={saving} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-40">
           {saving ? "Guardando..." : isEdit ? "Actualizar recibo" : "Guardar recibo"}
         </button>
       </div>
@@ -2202,7 +2196,7 @@ function RegistrarServicioForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {/* Two-column layout on wide modal: left = fields, right = checklist */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         {/* Left: service info + basic fields */}
@@ -2227,7 +2221,7 @@ function RegistrarServicioForm({
           <div>
             <p className="mb-1 text-[11px] font-medium text-white/40">Adjunto (foto, PDF, factura)</p>
             {adjunto ? (
-              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+              <div className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="text-base">{adjunto.tipo.startsWith("image/") ? "🖼️" : "📄"}</span>
                   <span className="min-w-0 flex-1 truncate text-[11px] text-white/60">{adjunto.nombre}</span>
@@ -2260,7 +2254,7 @@ function RegistrarServicioForm({
         <div className="min-w-0 flex-1">
 
       {/* Checklist */}
-      <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
         {/* Header + progress */}
         <div className="mb-1 flex items-center justify-between">
           <p className="text-xs font-semibold text-white/70">Checklist de servicio</p>
@@ -2336,7 +2330,7 @@ function RegistrarServicioForm({
       {error && <p className="text-xs text-red-400">{error}</p>}
       <button
         type="submit"
-        className="w-full rounded-xl bg-byd-500 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-byd-400"
+        className="w-full rounded-lg bg-byd-500 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400"
       >
         {isEdit ? "Guardar cambios" : "Registrar servicio"}
       </button>
@@ -2349,13 +2343,13 @@ function KpiChip({ label, value, sub, color, colorHex }: {
   label: string; value: string; sub?: string; color?: string; colorHex?: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-2">
-      <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wider text-white/30 leading-none">{label}</p>
-      <p className={`text-[11px] font-bold leading-none truncate ${color || "text-white/75"}`}
+    <div className="flex min-h-[52px] flex-col justify-center rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-1.5">
+      <p className="mb-0.5 truncate text-[9px] font-medium uppercase leading-none tracking-wider text-white/30">{label}</p>
+      <p className={`truncate text-[11px] font-bold leading-tight ${color || "text-white/75"}`}
          style={colorHex ? { color: colorHex } : {}}>
         {value}
       </p>
-      {sub && <p className="mt-0.5 text-[9px] text-white/25 leading-none truncate">{sub}</p>}
+      {sub && <p className="mt-0.5 truncate text-[9px] leading-none text-white/25">{sub}</p>}
     </div>
   );
 }
@@ -2402,7 +2396,7 @@ function GastoEvolucionLine({ periodosElectricos, mantenimientoList, otrosCostos
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Evolución de gastos (12 meses)</p>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">Evolución de gastos (12 meses)</p>
       <ResponsiveContainer width="100%" height={130}>
         <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -2447,7 +2441,7 @@ function GastoComparativoStacked({ periodosElectricos, mantenimientoList, otrosC
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Comparativo por categoría</p>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">Comparativo por categoría</p>
       <ResponsiveContainer width="100%" height={130}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
@@ -2472,7 +2466,7 @@ function GastoDistribucionPie({ segments }: {
   if (total === 0) return null;
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Distribución (este año)</p>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">Distribución (este año)</p>
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
           <PieChart width={96} height={96}>
@@ -2528,19 +2522,26 @@ function ActividadReciente({ onNavigate }: { onNavigate: (s: Section) => void })
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Actividad reciente</p>
-        <button onClick={() => onNavigate("historial")} className="text-[9px] text-byd-400/60 hover:text-byd-400">Ver todo →</button>
+        <button onClick={() => onNavigate("historial")} className="text-[9px] text-byd-400/60 transition-colors hover:text-byd-400">Ver todo →</button>
       </div>
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+      <div className="relative flex items-start">
+        <div className="pointer-events-none absolute left-[10%] right-[10%] top-[14px] h-px bg-white/[0.06]" aria-hidden />
         {items.map((item) => (
-          <button key={item.id} type="button" onClick={() => onNavigate(item.section)}
-            className="flex flex-col gap-1 rounded-lg border border-white/5 bg-white/[0.02] p-2 text-left transition-colors hover:bg-white/[0.05]">
-            <div className="flex items-center justify-between">
-              <span className="text-sm leading-none">{item.icon}</span>
-              <div className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onNavigate(item.section)}
+            className="group relative z-10 flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 text-center transition-opacity hover:opacity-90"
+          >
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[#0b0e11] text-xs transition-colors group-hover:border-white/20"
+              style={{ boxShadow: `0 0 0 2px ${item.color}22` }}
+            >
+              {item.icon}
             </div>
-            <p className="truncate text-[10px] font-medium text-white/70 leading-tight">{item.label}</p>
-            <p className="text-[9px] text-white/25">{formatDateShort(item.fecha)}</p>
-            <p className="text-[10px] font-semibold text-white/60">{formatCurrency(item.monto)}</p>
+            <p className="mt-1 w-full truncate text-[9px] font-medium leading-tight text-white/55">{item.label}</p>
+            <p className="text-[8px] text-white/25">{formatDateShort(item.fecha)}</p>
+            <p className="text-[9px] font-semibold text-byd-400">{formatCurrency(item.monto)}</p>
           </button>
         ))}
       </div>
@@ -2672,7 +2673,7 @@ function SeccionDashboard({
             <GastoDistribucionPie segments={segments} />
             {/* Resumen rápido */}
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Resumen rápido</p>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">Resumen rápido</p>
               <div className="space-y-1.5 text-[10px]">
                 {[
                   { icon: "⛽", label: "Costo/km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
@@ -2866,7 +2867,7 @@ function OtroCostoForm({
       {error && <p className="text-xs text-red-400">{error}</p>}
       <button
         type="submit"
-        className="w-full rounded-xl bg-byd-500 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-byd-400"
+        className="w-full rounded-lg bg-byd-500 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400"
       >
         {isEdit ? "Guardar cambios" : "Registrar gasto"}
       </button>
@@ -3222,7 +3223,7 @@ function SeccionMantenimiento({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Hidden file input for changing adjunto from history */}
       <input
         ref={fileInputRef}
@@ -3267,10 +3268,10 @@ function SeccionMantenimiento({
         const C = 2 * Math.PI * R;
         const offset = C - (healthScore / 100) * C;
         return (
-          <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3 sm:p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-sm">🩺</span>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">Estado del vehículo</h3>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+            <div className="mb-2.5 flex items-center gap-2">
+              <span className="text-xs">🩺</span>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Estado del vehículo</h3>
             </div>
 
             {/* Score + cards row */}
@@ -3303,35 +3304,35 @@ function SeccionMantenimiento({
               </div>
 
               {/* 6 KPI cards */}
-              <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-green-500/15 bg-green-500/[0.04] p-2.5 text-center">
-                  <p className="text-lg">✅</p>
-                  <p className="mt-0.5 text-sm font-bold text-green-400">{serviciosCompletados}</p>
+              <div className="grid flex-1 grid-cols-2 gap-1.5 sm:grid-cols-3">
+                <div className="rounded-lg border border-green-500/15 bg-green-500/[0.04] p-2 text-center">
+                  <p className="text-base">✅</p>
+                  <p className="mt-0.5 text-xs font-bold text-green-400">{serviciosCompletados}</p>
                   <p className="text-[9px] text-white/35">Al día</p>
                 </div>
-                <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-2.5 text-center">
-                  <p className="text-lg">⚠️</p>
-                  <p className="mt-0.5 text-sm font-bold text-amber-400">{serviciosProximos}</p>
+                <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-2 text-center">
+                  <p className="text-base">⚠️</p>
+                  <p className="mt-0.5 text-xs font-bold text-amber-400">{serviciosProximos}</p>
                   <p className="text-[9px] text-white/35">Próximos</p>
                 </div>
-                <div className="rounded-xl border border-red-500/15 bg-red-500/[0.04] p-2.5 text-center">
-                  <p className="text-lg">❌</p>
-                  <p className="mt-0.5 text-sm font-bold text-red-400">{serviciosVencidos}</p>
+                <div className="rounded-lg border border-red-500/15 bg-red-500/[0.04] p-2 text-center">
+                  <p className="text-base">❌</p>
+                  <p className="mt-0.5 text-xs font-bold text-red-400">{serviciosVencidos}</p>
                   <p className="text-[9px] text-white/35">Vencidos</p>
                 </div>
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
-                  <p className="text-lg">💰</p>
-                  <p className="mt-0.5 text-xs font-bold text-white/75">{formatCurrency(totalGeneral)}</p>
+                <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
+                  <p className="text-base">💰</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-white/75">{formatCurrency(totalGeneral)}</p>
                   <p className="text-[9px] text-white/35">Gasto total</p>
                 </div>
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
-                  <p className="text-lg">🔧</p>
-                  <p className="mt-0.5 text-sm font-bold text-white/75">{mantenimientoList.length}</p>
+                <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
+                  <p className="text-base">🔧</p>
+                  <p className="mt-0.5 text-xs font-bold text-white/75">{mantenimientoList.length}</p>
                   <p className="text-[9px] text-white/35">Servicios</p>
                 </div>
-                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
-                  <p className="text-lg">📈</p>
-                  <p className="mt-0.5 text-xs font-bold text-white/75">{formatCurrency(promedioAnual)}</p>
+                <div className="rounded-lg border border-white/5 bg-white/[0.02] p-2 text-center">
+                  <p className="text-base">📈</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-white/75">{formatCurrency(promedioAnual)}</p>
                   <p className="text-[9px] text-white/35">Prom. anual</p>
                 </div>
               </div>
@@ -3438,11 +3439,11 @@ function SeccionMantenimiento({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
               <p className="text-[10px] text-white/35">Serv. oficial</p>
-              <p className="mt-0.5 text-sm font-semibold text-white/80">{formatCurrency(totalOficial)}</p>
+              <p className="mt-0.5 text-xs font-semibold text-white/75">{formatCurrency(totalOficial)}</p>
             </div>
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
               <p className="text-[10px] text-white/35">Promedio / serv.</p>
-              <p className="mt-0.5 text-sm font-semibold text-white/80">{formatCurrency(promedioPorServicio)}</p>
+              <p className="mt-0.5 text-xs font-semibold text-white/75">{formatCurrency(promedioPorServicio)}</p>
             </div>
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
               <p className="text-[10px] text-white/35">Dif. est. vs real</p>
@@ -3452,7 +3453,7 @@ function SeccionMantenimiento({
             </div>
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
               <p className="text-[10px] text-white/35">Costo / km</p>
-              <p className="mt-0.5 text-sm font-semibold text-white/80">${costoPorKm.toFixed(2)}</p>
+              <p className="mt-0.5 text-xs font-semibold text-white/75">${costoPorKm.toFixed(2)}</p>
             </div>
           </div>
           {/* Row 2 — otros + total */}
@@ -3529,10 +3530,10 @@ function SeccionMantenimiento({
 
       {/* ── Próximo servicio ── */}
       {proximo ? (
-        <div className={`rounded-xl border p-3 sm:p-4 ${status.bg} ${status.borderColor}`}>
+        <div className={`rounded-xl border p-3 ${status.bg} ${status.borderColor}`}>
           {/* Header */}
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white/80">🔧 Próximo mantenimiento</h3>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">🔧 Próximo mantenimiento</h3>
             <button
               type="button"
               onClick={() => onRegistrar(proximo.km)}
@@ -3622,7 +3623,7 @@ function SeccionMantenimiento({
       )}
 
       {/* ── Historial de mantenimientos ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">📋 Historial de mantenimientos</h3>
           <span className="text-[10px] text-white/30">{mantenimientoList.length} registros</span>
@@ -3786,7 +3787,7 @@ function SeccionMantenimiento({
       </div>
 
       {/* ── Otros costos y refacciones ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">🔩 Otros costos y refacciones</h3>
           <div className="flex items-center gap-2">
@@ -3842,7 +3843,7 @@ function SeccionMantenimiento({
       </div>
 
       {/* ── Calendario oficial BYD King ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">📅 Calendario oficial BYD King</h3>
         <div className="space-y-1.5">
           {BYD_KING_SERVICIOS.map((s) => {
@@ -3937,7 +3938,7 @@ function GraficoHistorico({
   };
 
   return (
-    <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+    <div className="mt-2 rounded-xl border border-white/5 bg-white/[0.02] p-3">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white/80">📈 Evolución histórica</h3>
         <div className="flex gap-1.5">
@@ -4088,8 +4089,8 @@ function SeccionEnergia({
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white/80">⚡ Centro de Energía</h2>
+      <div className="mb-2.5 flex items-center justify-between">
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">⚡ Centro de Energía</h2>
         <button
           type="button"
           onClick={onNewRecibo}
@@ -4160,11 +4161,11 @@ function SeccionEnergia({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 
         {/* Card A: Recibo CFE vigente */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         {ultimoRecibo ? (
           <>
-            <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">📄 Recibo CFE vigente</h3>
-            <div className="space-y-1.5 text-sm">
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">📄 Recibo CFE vigente</h3>
+            <div className="space-y-1 text-xs">
               <div className="flex justify-between">
                 <span className="text-white/40">Periodo</span>
                 <span className="font-medium text-white/80">
@@ -4269,7 +4270,7 @@ function SeccionEnergia({
       </div>
 
       {/* Card B: Consumo Casa vs BYD */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         {ultimoRecibo ? (
           <>
             <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">Consumo Casa vs BYD</h3>
@@ -4313,7 +4314,7 @@ function SeccionEnergia({
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
 
         {/* Card C: Costos eléctricos */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
         <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">Costos eléctricos</h3>
         {ultimoRecibo ? (
           <div className="space-y-3 text-sm">
@@ -4368,7 +4369,7 @@ function SeccionEnergia({
         </div>
 
         {/* Card E: Resumen del periodo */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
           <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">📊 Resumen del periodo</h3>
           {ultimoRecibo ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -4409,7 +4410,7 @@ function SeccionEnergia({
       )}
 
       {/* ── Historial de recibos (ancho completo, filas compactas) ── */}
-      <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+      <div className="mt-2 rounded-xl border border-white/5 bg-white/[0.02] p-3">
         <h3 className="mb-2 text-xs font-medium text-white/50 uppercase tracking-wide">Historial de recibos</h3>
         {periodos.length > 0 ? (
           recibosAnteriores.length > 0 ? (
@@ -4513,57 +4514,56 @@ function Sidebar({ section, onNavigate, odometroActual, batteryPct, vehiculo, on
   return (
     <aside className="hidden w-[210px] shrink-0 flex-col border-r border-white/[0.05] bg-[#080a0b] sm:flex">
       {/* Logo */}
-      <div className="border-b border-white/[0.05] px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-byd-500 text-black">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <div className="border-b border-white/[0.05] px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-byd-500 text-black">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-bold leading-none">BYD Wallet</p>
-            <p className="mt-0.5 truncate text-[10px] text-white/30">{vehiculo}</p>
+            <p className="text-xs font-bold leading-none">BYD Wallet</p>
+            <p className="mt-0.5 truncate text-[9px] text-white/30">{vehiculo}</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
         {NAV_ITEMS.map((item) => (
           <button
             key={item.s}
             type="button"
             onClick={() => onNavigate(item.s)}
-            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
               section === item.s
-                ? "bg-byd-500/15 text-byd-400"
+                ? "bg-byd-500/15 text-byd-400 shadow-[inset_0_0_0_1px_rgba(18,184,160,0.2)]"
                 : "text-white/35 hover:bg-white/[0.04] hover:text-white/65"
             }`}
           >
-            <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center text-xs leading-none">{item.icon}</span>
             <span className="text-[11px] font-medium leading-none">{item.label}</span>
-            {section === item.s && <span className="ml-auto h-1 w-1 rounded-full bg-byd-400" />}
           </button>
         ))}
       </nav>
 
       {/* Vehicle info */}
-      <div className="mx-2 mb-2 rounded-xl border border-white/[0.05] bg-white/[0.025] p-3">
-        <p className="text-[9px] font-semibold uppercase tracking-wider text-white/25">Odómetro actual</p>
-        <p className="mt-0.5 text-[15px] font-bold text-white/80">{odometroActual.toLocaleString()} km</p>
+      <div className="mx-2 mb-1.5 rounded-xl border border-white/[0.05] bg-white/[0.025] p-2.5">
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-white/25">Odómetro</p>
+        <p className="mt-0.5 text-sm font-bold text-white/80">{odometroActual.toLocaleString()} km</p>
       </div>
 
       {/* Battery */}
-      <div className="mx-2 mb-2 flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.025] px-3 py-2.5">
+      <div className="mx-2 mb-1.5 flex items-center gap-2.5 rounded-xl border border-white/[0.05] bg-white/[0.025] px-2.5 py-2">
         <ProgressRing pct={batteryPct} />
         <div>
           <p className="text-[9px] text-white/25">Batería</p>
-          <p className="text-sm font-semibold">{batteryPct}%</p>
+          <p className="text-xs font-semibold">{batteryPct}%</p>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-white/[0.05] px-4 py-2.5">
+      <div className="flex items-center justify-between border-t border-white/[0.05] px-3 py-2">
         <span className="text-[9px] text-white/20">v{APP_VERSION}</span>
         <button
           type="button"
@@ -4928,13 +4928,13 @@ export default function Home() {
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
 
         {/* Desktop top bar */}
-        <header className="hidden shrink-0 items-center justify-between border-b border-white/[0.05] px-5 py-2.5 sm:flex">
-          <div className="flex items-center gap-2 text-[11px] text-white/40">
-            <span>📅</span>
+        <header className="hidden shrink-0 items-center justify-between border-b border-white/[0.05] px-4 py-2 sm:flex">
+          <div className="flex items-center gap-2 text-[10px] text-white/35">
+            <span className="opacity-60">📅</span>
             <span className="capitalize">{dateStr}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-white/25">v{APP_VERSION}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-white/20">v{APP_VERSION}</span>
             <button type="button" onClick={() => setKpiVersion((v) => v + 1)}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/5 bg-white/[0.03] text-white/30 transition-colors hover:text-byd-400"
               title="Actualizar datos">
@@ -4983,7 +4983,7 @@ export default function Home() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
-        <div className="px-4 pb-5 pt-3 sm:px-5">
+        <div className="px-3 pb-4 pt-2.5 sm:px-4">
 
         {/* 6-chip global KPI row */}
         <section className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
@@ -5003,7 +5003,7 @@ export default function Home() {
         </nav>
 
         {/* ═══ SECTION CONTENT ═══ */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 backdrop-blur-xl sm:p-4">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 backdrop-blur-xl">
           {/* ── Dashboard ── */}
           {section === "dashboard" && (
             <SeccionDashboard
@@ -5032,31 +5032,31 @@ export default function Home() {
                   return (
                   <div
                     key={entry.id}
-                    className="flex items-center justify-between rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03] sm:px-4"
+                    className="flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors hover:bg-white/[0.03]"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-byd-500/15 text-sm text-byd-400">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-byd-500/15 text-xs text-byd-400">
                         ⛽
                       </div>
-                      <div>
-                        <p className="text-sm font-medium">{entry.concepto}</p>
-                        <p className="text-[11px] text-white/30">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{entry.concepto}</p>
+                        <p className="text-[10px] text-white/30">
                           {formatDateShort(entry.fecha)} · {entry.litros} L · {entry.kilometraje.toLocaleString()} km
                         </p>
                         {isFirst ? (
-                          <p className="text-[10px] text-white/20">Primera recarga registrada</p>
+                          <p className="text-[9px] text-white/20">Primera recarga registrada</p>
                         ) : kmDelta !== null && kmDelta > 0 ? (
-                          <p className="text-[10px] text-byd-400/60">+{kmDelta.toLocaleString()} km desde última recarga</p>
+                          <p className="text-[9px] text-byd-400/60">+{kmDelta.toLocaleString()} km</p>
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
-                      <div className="ml-1 flex gap-1">
+                    <div className="flex shrink-0 items-center gap-1">
+                      <p className="text-xs font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                      <div className="ml-0.5 flex gap-0.5">
                         <button
                           type="button"
                           onClick={() => setGasolinaEnDetalle(entry)}
-                          className="rounded-lg border border-white/10 px-1.5 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
                           title="Ver detalle"
                         >
                           📋
@@ -5064,7 +5064,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => setEditingGasolina(entry)}
-                          className="rounded-lg border border-white/10 px-1.5 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
                           title="Editar"
                         >
                           ✏️
@@ -5072,7 +5072,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => setDeletingGasolina(entry)}
-                          className="rounded-lg border border-red-500/20 px-1.5 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
                           title="Eliminar"
                         >
                           🗑️
@@ -5083,7 +5083,7 @@ export default function Home() {
                   );
                 })}
                 {gasolinaList.length === 0 && (
-                  <p className="py-8 text-center text-sm text-white/30">No hay registros de gasolina</p>
+                  <p className="py-6 text-center text-xs text-white/30">No hay registros de gasolina</p>
                 )}
               </div>
             </div>
@@ -5093,33 +5093,31 @@ export default function Home() {
           {section === "cargas" && (
             <div>
               <SectionHeader title="Cargas eléctricas" count={cargasList.length} onAdd={() => setFormModal("carga")} />
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {cargasList.map((entry) => (
                   <div
                     key={entry.id}
-                    className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2.5 transition-colors hover:bg-white/[0.06] sm:px-4"
+                    className="flex items-center justify-between rounded-lg px-2.5 py-2 transition-colors hover:bg-white/[0.03]"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-byd-500/15 text-sm text-byd-400">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-byd-500/15 text-xs text-byd-400">
                         ⚡
                       </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {entry.tipo}
-                        </p>
-                        <p className="text-[11px] text-white/30">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{entry.tipo}</p>
+                        <p className="text-[10px] text-white/30">
                           {formatDateShort(entry.fecha)} · {entry.kwhCargados} kWh ({entry.pctInicial}% → {entry.pctFinal}%)
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
-                      <p className="text-[10px] text-white/30">{entry.kmEvObtenidos} km</p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                      <p className="text-[9px] text-white/30">{entry.kmEvObtenidos} km</p>
                     </div>
                   </div>
                 ))}
                 {cargasList.length === 0 && (
-                  <p className="py-8 text-center text-sm text-white/30">No hay registros de cargas</p>
+                  <p className="py-6 text-center text-xs text-white/30">No hay registros de cargas</p>
                 )}
               </div>
             </div>
@@ -5176,7 +5174,7 @@ export default function Home() {
         </div>
 
         {/* ═══ FOOTER ═══ */}
-        <footer className="mt-3 text-center text-[9px] text-white/15">
+        <footer className="mt-2 text-center text-[9px] text-white/15">
           BYD Wallet · v{APP_VERSION}
         </footer>
         </div>{/* end px-4 pb-5 */}

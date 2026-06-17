@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.6";
+const APP_VERSION = "0.5.4.0";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2037,19 +2037,44 @@ const BYD_KING_SERVICIOS: { km: number; meses: number; costo: number }[] = [
   { km: 150000, meses: 120, costo: 5278 },
 ];
 
-function getMantenimientoStatus(kmRestantes: number): {
+function getMantenimientoStatus(kmRestantes: number, mesesRestantes?: number): {
   color: string;
   bg: string;
+  borderColor: string;
   label: string;
+  message: string;
+  icon: string;
   dot: string;
 } {
-  if (kmRestantes <= 0)
-    return { color: "text-red-400",   bg: "bg-red-500/15",   dot: "bg-red-400",   label: "Vencido" };
-  if (kmRestantes <= 500)
-    return { color: "text-red-400",   bg: "bg-red-500/15",   dot: "bg-red-400",   label: "Urgente" };
-  if (kmRestantes <= 2000)
-    return { color: "text-amber-400", bg: "bg-amber-500/15", dot: "bg-amber-400", label: "Próximo" };
-  return   { color: "text-green-400", bg: "bg-green-500/15", dot: "bg-green-400", label: "Al día" };
+  const vencidoKm   = kmRestantes <= 0;
+  const vencidoMes  = mesesRestantes !== undefined && mesesRestantes <= 0;
+  const urgenteKm   = kmRestantes > 0 && kmRestantes <= 500;
+  const proximoKm   = kmRestantes > 500 && kmRestantes <= 2000;
+  const proximoMes  = mesesRestantes !== undefined && mesesRestantes > 0 && mesesRestantes <= 2;
+
+  if (vencidoKm || vencidoMes)
+    return {
+      color: "text-red-400", bg: "bg-red-500/10", borderColor: "border-red-500/30",
+      dot: "bg-red-400", label: "Vencido", icon: "🔴",
+      message: "Servicio vencido — agenda lo antes posible",
+    };
+  if (urgenteKm)
+    return {
+      color: "text-red-400", bg: "bg-red-500/10", borderColor: "border-red-500/30",
+      dot: "bg-red-400", label: "Urgente", icon: "🟠",
+      message: "Agenda tu servicio pronto",
+    };
+  if (proximoKm || proximoMes)
+    return {
+      color: "text-amber-400", bg: "bg-amber-500/10", borderColor: "border-amber-500/25",
+      dot: "bg-amber-400", label: "Próximo", icon: "🟡",
+      message: "Servicio próximo — planifica tu cita",
+    };
+  return {
+    color: "text-green-400", bg: "bg-green-500/10", borderColor: "border-green-500/20",
+    dot: "bg-green-400", label: "Al día", icon: "🟢",
+    message: "Todo bien — sin acciones requeridas",
+  };
 }
 
 // ── Checklist de servicio BYD King ───────────────────────────────────────
@@ -2463,7 +2488,22 @@ function SeccionMantenimiento({
   const rangeKm = proximo && anterior ? proximo.km - anterior.km : proximo ? proximo.km : 15000;
   const kmFromLast = proximo && anterior ? odometroActual - anterior.km : odometroActual;
   const progressPct = Math.min(100, Math.round((kmFromLast / rangeKm) * 100));
-  const status = getMantenimientoStatus(kmRestantes);
+
+  // Time-based alert: find the last completed service and compute months elapsed
+  const lastCompletado = [...mantenimientoList]
+    .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
+    .find((e) => e.estado === "completado");
+  const SERVICE_INTERVAL_MONTHS = 12;
+  const mesesRestantes: number | undefined = (() => {
+    if (!lastCompletado?.fecha) return undefined;
+    const last = new Date(lastCompletado.fecha);
+    const now = new Date();
+    const monthsElapsed =
+      (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth());
+    return SERVICE_INTERVAL_MONTHS - monthsElapsed;
+  })();
+
+  const status = getMantenimientoStatus(kmRestantes, mesesRestantes);
 
   // KPI calculations — oficial services only
   const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
@@ -2498,6 +2538,232 @@ function SeccionMantenimiento({
     .sort(([, a], [, b]) => b - a)
     .map(([cat, total]) => ({ cat, total }));
 
+  // ── Salud del vehículo ─────────────────────────────────────────────────
+  const serviciosCompletados = mantenimientoList.filter((e) => e.estado === "completado").length;
+  const serviciosProximos   = status.label === "Próximo" ? 1 : 0;
+  const serviciosVencidos   = (kmRestantes <= 0 || (mesesRestantes !== undefined && mesesRestantes <= 0)) ? 1 : 0;
+
+  // Annual avg: span from first to last record date
+  const sortedAscDates = [...mantenimientoList]
+    .filter((e) => e.fecha)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const firstFecha = sortedAscDates[0]?.fecha;
+  const lastFecha  = sortedAscDates[sortedAscDates.length - 1]?.fecha;
+  const yearsSpan  = (() => {
+    if (!firstFecha || !lastFecha || firstFecha === lastFecha) return 1;
+    const d1 = new Date(firstFecha);
+    const d2 = new Date(lastFecha);
+    return Math.max(1, ((d2.getFullYear() - d1.getFullYear()) * 12 + d2.getMonth() - d1.getMonth()) / 12);
+  })();
+  const promedioAnual = mantenimientoList.length > 0
+    ? Math.round(totalOficial / yearsSpan)
+    : 0;
+
+  // Health score (0-100)
+  let healthScore = 100;
+  if (kmRestantes <= 0)               healthScore -= 35;
+  else if (kmRestantes <= 500)        healthScore -= 20;
+  else if (kmRestantes <= 2000)       healthScore -= 10;
+  if (mesesRestantes !== undefined) {
+    if (mesesRestantes <= 0)          healthScore -= 20;
+    else if (mesesRestantes <= 2)     healthScore -= 5;
+  }
+  if (mantenimientoList.length === 0) healthScore -= 15;
+  healthScore = Math.max(0, Math.min(100, healthScore));
+
+  const healthLabel =
+    healthScore >= 98 ? "Excelente" :
+    healthScore >= 90 ? "Muy bueno" :
+    healthScore >= 80 ? "Bueno" :
+    healthScore >= 70 ? "Requiere atención" : "Atención inmediata";
+  const healthColor =
+    healthScore >= 98 ? "#4ade80" :
+    healthScore >= 90 ? "#60efb0" :
+    healthScore >= 80 ? "#a3e635" :
+    healthScore >= 70 ? "#fbbf24" : "#f87171";
+
+  // ── Export helpers ──────────────────────────────────────────────────────
+  function exportCSV() {
+    const exportDate = new Date().toLocaleDateString("es-MX");
+    const rows: string[] = [];
+    const q = (s: string | number | undefined) =>
+      `"${String(s ?? "").replace(/"/g, '""')}"`;
+
+    rows.push(`"BYD Wallet — Exportación Mantenimiento","${exportDate}"`);
+    rows.push("");
+
+    // Servicios oficiales
+    rows.push('"== SERVICIOS OFICIALES =="');
+    rows.push([
+      "Fecha", "Servicio", "Odómetro (km)", "Agencia",
+      "Costo estimado ($)", "Costo real ($)", "Diferencia ($)", "Notas",
+    ].map(q).join(","));
+    const sorted = [...mantenimientoList].sort((a, b) =>
+      (a.fecha ?? "").localeCompare(b.fecha ?? "")
+    );
+    for (const e of sorted) {
+      const est = e.costoEstimado ?? e.costo;
+      const real = e.costoReal ?? e.costo;
+      rows.push([
+        e.fecha, e.servicio, e.km, e.agencia ?? "",
+        est.toFixed(2), real.toFixed(2), (real - est).toFixed(2), e.notas ?? "",
+      ].map(q).join(","));
+    }
+    rows.push(`"Total servicios oficiales",,,,,"${totalOficial.toFixed(2)}"`);
+    rows.push("");
+
+    // Otros costos
+    rows.push('"== OTROS COSTOS Y REFACCIONES =="');
+    rows.push(["Fecha", "Concepto", "Categoría", "Odómetro (km)", "Proveedor", "Costo ($)", "Notas"].map(q).join(","));
+    const sortedOtros = [...otrosCostosList].sort((a, b) =>
+      (a.fecha ?? "").localeCompare(b.fecha ?? "")
+    );
+    for (const e of sortedOtros) {
+      rows.push([
+        e.fecha, e.concepto, e.categoria, e.odometro ?? "", e.proveedor ?? "",
+        e.costo.toFixed(2), e.notas ?? "",
+      ].map(q).join(","));
+    }
+    rows.push(`"Total otros costos",,,,,,"${totalOtros.toFixed(2)}"`);
+    rows.push("");
+
+    // Resumen
+    rows.push('"== RESUMEN =="');
+    rows.push(`"Total mantenimiento oficial","${totalOficial.toFixed(2)}"`);
+    rows.push(`"Total otros costos","${totalOtros.toFixed(2)}"`);
+    rows.push(`"TOTAL GENERAL","${totalGeneral.toFixed(2)}"`);
+    rows.push(`"Diferencia estimado vs real (oficial)","${diffCosto.toFixed(2)}"`);
+    rows.push(`"Costo por km","${costoPorKm.toFixed(2)}"`);
+    rows.push(`"Fecha de exportación","${exportDate}"`);
+
+    const blob = new Blob(["\uFEFF" + rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `byd-mantenimiento-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportPDF() {
+    const exportDate = new Date().toLocaleDateString("es-MX");
+    const sortedOf = [...mantenimientoList].sort((a, b) =>
+      (a.fecha ?? "").localeCompare(b.fecha ?? "")
+    );
+    const sortedOtros = [...otrosCostosList].sort((a, b) =>
+      (a.fecha ?? "").localeCompare(b.fecha ?? "")
+    );
+
+    const rowStyle = `style="border-bottom:1px solid #e5e7eb;padding:6px 8px;font-size:12px;"`;
+    const thStyle  = `style="background:#f3f4f6;padding:6px 8px;font-size:11px;font-weight:600;text-align:left;border-bottom:2px solid #d1d5db;"`;
+
+    const oficialRows = sortedOf.map((e) => {
+      const est = e.costoEstimado ?? e.costo;
+      const real = e.costoReal ?? e.costo;
+      return `<tr>
+        <td ${rowStyle}>${e.fecha}</td>
+        <td ${rowStyle}>${e.servicio}</td>
+        <td ${rowStyle}>${e.km.toLocaleString()} km</td>
+        <td ${rowStyle}>${e.agencia ?? "—"}</td>
+        <td ${rowStyle}>$${est.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td>
+        <td ${rowStyle}>$${real.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td>
+        <td ${rowStyle} style="color:${real - est > 0 ? "#dc2626" : "#16a34a"}">
+          ${real - est > 0 ? "+" : ""}$${(real - est).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+        </td>
+      </tr>`;
+    }).join("");
+
+    const otrosRows = sortedOtros.map((e) => `<tr>
+      <td ${rowStyle}>${e.fecha}</td>
+      <td ${rowStyle}>${e.concepto}</td>
+      <td ${rowStyle}>${e.categoria}</td>
+      <td ${rowStyle}>${e.odometro ? e.odometro.toLocaleString() + " km" : "—"}</td>
+      <td ${rowStyle}>${e.proveedor ?? "—"}</td>
+      <td ${rowStyle}>$${e.costo.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td>
+    </tr>`).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<title>BYD Wallet — Mantenimiento</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;padding:24px 32px;color:#111;}
+  h1{font-size:20px;margin:0 0 4px;}
+  h2{font-size:14px;margin:24px 0 8px;color:#374151;}
+  .meta{font-size:12px;color:#6b7280;margin-bottom:20px;}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px;}
+  .summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px;}
+  .kpi{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;}
+  .kpi-label{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;}
+  .kpi-value{font-size:18px;font-weight:700;color:#111;margin-top:2px;}
+  .kpi-total{background:#eff6ff;border-color:#bfdbfe;}
+  .footer{margin-top:32px;font-size:10px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:12px;}
+  @media print{body{padding:16px;}@page{margin:1cm;}}
+</style></head><body>
+<h1>🔧 Historial de Mantenimiento — BYD King</h1>
+<p class="meta">Exportado el ${exportDate}</p>
+
+<h2>Servicios Oficiales</h2>
+<table>
+  <thead><tr>
+    <th ${thStyle}>Fecha</th><th ${thStyle}>Servicio</th><th ${thStyle}>Odómetro</th>
+    <th ${thStyle}>Agencia</th><th ${thStyle}>Estimado</th><th ${thStyle}>Real</th><th ${thStyle}>Diferencia</th>
+  </tr></thead>
+  <tbody>${oficialRows || `<tr><td colspan="7" style="padding:12px;text-align:center;color:#9ca3af;">Sin registros</td></tr>`}</tbody>
+  <tfoot><tr>
+    <td colspan="5" style="padding:6px 8px;font-size:12px;font-weight:600;">Total servicios oficiales</td>
+    <td colspan="2" style="padding:6px 8px;font-size:13px;font-weight:700;">$${totalOficial.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td>
+  </tr></tfoot>
+</table>
+
+<h2>Otros Costos y Refacciones</h2>
+<table>
+  <thead><tr>
+    <th ${thStyle}>Fecha</th><th ${thStyle}>Concepto</th><th ${thStyle}>Categoría</th>
+    <th ${thStyle}>Odómetro</th><th ${thStyle}>Proveedor</th><th ${thStyle}>Costo</th>
+  </tr></thead>
+  <tbody>${otrosRows || `<tr><td colspan="6" style="padding:12px;text-align:center;color:#9ca3af;">Sin registros</td></tr>`}</tbody>
+  <tfoot><tr>
+    <td colspan="5" style="padding:6px 8px;font-size:12px;font-weight:600;">Total otros costos</td>
+    <td style="padding:6px 8px;font-size:13px;font-weight:700;">$${totalOtros.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td>
+  </tr></tfoot>
+</table>
+
+<div class="summary">
+  <div class="kpi">
+    <div class="kpi-label">Serv. oficial</div>
+    <div class="kpi-value">$${totalOficial.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Otros costos</div>
+    <div class="kpi-value">$${totalOtros.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</div>
+  </div>
+  <div class="kpi kpi-total">
+    <div class="kpi-label">Total general</div>
+    <div class="kpi-value">$${totalGeneral.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Dif. estimado vs real</div>
+    <div class="kpi-value" style="color:${diffCosto > 0 ? "#dc2626" : "#16a34a"}">
+      ${diffCosto > 0 ? "+" : ""}$${Math.abs(diffCosto).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+    </div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Costo / km</div>
+    <div class="kpi-value">$${costoPorKm.toFixed(2)}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Servicios registrados</div>
+    <div class="kpi-value">${mantenimientoList.length}</div>
+  </div>
+</div>
+<p class="footer">BYD Wallet v${APP_VERSION} · Exportado el ${exportDate}</p>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+
+    const win = window.open("", "_blank");
+    if (win) { win.document.write(html); win.document.close(); }
+  }
+
   return (
     <div className="space-y-4">
       {/* Hidden file input for changing adjunto from history */}
@@ -2508,6 +2774,205 @@ function SeccionMantenimiento({
         className="hidden"
         onChange={handleAdjuntoFileChange}
       />
+
+      {/* ── Export toolbar ── */}
+      {(mantenimientoList.length > 0 || otrosCostosList.length > 0) && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-white/30">Exportar historial</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={exportCSV}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              CSV
+            </button>
+            <button
+              type="button"
+              onClick={exportPDF}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+              PDF
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 🩺 Estado del vehículo ══ */}
+      {(() => {
+        const R = 52;
+        const C = 2 * Math.PI * R;
+        const offset = C - (healthScore / 100) * C;
+        return (
+          <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-base">🩺</span>
+              <h3 className="text-sm font-semibold text-white/80">Estado del vehículo</h3>
+            </div>
+
+            {/* Score + cards row */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              {/* Circular score */}
+              <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+                <svg width="128" height="128" viewBox="0 0 128 128">
+                  <circle cx="64" cy="64" r={R} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+                  <circle
+                    cx="64" cy="64" r={R}
+                    fill="none"
+                    stroke={healthColor}
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeDasharray={C}
+                    strokeDashoffset={offset}
+                    transform="rotate(-90 64 64)"
+                    style={{ transition: "stroke-dashoffset 1s ease, stroke 0.5s ease" }}
+                  />
+                  <text x="64" y="60" textAnchor="middle" dominantBaseline="middle"
+                    style={{ fontSize: 28, fontWeight: 700, fill: healthColor }}>
+                    {healthScore}
+                  </text>
+                  <text x="64" y="82" textAnchor="middle" dominantBaseline="middle"
+                    style={{ fontSize: 10, fill: "rgba(255,255,255,0.4)" }}>
+                    / 100
+                  </text>
+                </svg>
+                <p className="text-center text-[11px] font-semibold" style={{ color: healthColor }}>{healthLabel}</p>
+              </div>
+
+              {/* 6 KPI cards */}
+              <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-green-500/15 bg-green-500/[0.04] p-2.5 text-center">
+                  <p className="text-lg">✅</p>
+                  <p className="mt-0.5 text-sm font-bold text-green-400">{serviciosCompletados}</p>
+                  <p className="text-[9px] text-white/35">Al día</p>
+                </div>
+                <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-2.5 text-center">
+                  <p className="text-lg">⚠️</p>
+                  <p className="mt-0.5 text-sm font-bold text-amber-400">{serviciosProximos}</p>
+                  <p className="text-[9px] text-white/35">Próximos</p>
+                </div>
+                <div className="rounded-xl border border-red-500/15 bg-red-500/[0.04] p-2.5 text-center">
+                  <p className="text-lg">❌</p>
+                  <p className="mt-0.5 text-sm font-bold text-red-400">{serviciosVencidos}</p>
+                  <p className="text-[9px] text-white/35">Vencidos</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
+                  <p className="text-lg">💰</p>
+                  <p className="mt-0.5 text-xs font-bold text-white/75">{formatCurrency(totalGeneral)}</p>
+                  <p className="text-[9px] text-white/35">Gasto total</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
+                  <p className="text-lg">🔧</p>
+                  <p className="mt-0.5 text-sm font-bold text-white/75">{mantenimientoList.length}</p>
+                  <p className="text-[9px] text-white/35">Servicios</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-center">
+                  <p className="text-lg">📈</p>
+                  <p className="mt-0.5 text-xs font-bold text-white/75">{formatCurrency(promedioAnual)}</p>
+                  <p className="text-[9px] text-white/35">Prom. anual</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div className="mt-5">
+              <p className="mb-3 text-[11px] font-medium text-white/40">Línea de tiempo BYD King</p>
+              <div className="space-y-0">
+                {BYD_KING_SERVICIOS.map((s, idx) => {
+                  const realizado = mantenimientoList.find(
+                    (e) => e.kmProgramado === s.km || e.km === s.km
+                  );
+                  const isProximo = proximo?.km === s.km;
+                  const isPast = odometroActual >= s.km;
+                  const isLast = idx === BYD_KING_SERVICIOS.length - 1;
+
+                  const dotColor = realizado
+                    ? "#4ade80"
+                    : isProximo
+                    ? healthColor
+                    : isPast
+                    ? "#f87171"
+                    : "rgba(255,255,255,0.15)";
+
+                  return (
+                    <div key={s.km} className="flex gap-3">
+                      {/* Vertical line + dot */}
+                      <div className="flex flex-col items-center">
+                        <div
+                          className="h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[9px] font-bold"
+                          style={{ borderColor: dotColor, backgroundColor: realizado ? dotColor + "20" : "transparent" }}
+                        >
+                          {realizado ? <span style={{ color: dotColor }}>✓</span>
+                           : isPast && !isProximo ? <span className="text-red-400">!</span>
+                           : isProximo ? <span style={{ color: dotColor }}>◎</span>
+                           : <span className="text-white/20">·</span>}
+                        </div>
+                        {!isLast && (
+                          <div className="w-0.5 flex-1 my-1" style={{ background: realizado ? "#4ade8030" : "rgba(255,255,255,0.06)" }} />
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <div className={`flex-1 pb-3 ${isLast ? "" : ""}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-[11px] font-semibold ${
+                            realizado ? "text-white/70" :
+                            isProximo ? "text-white/85" :
+                            isPast ? "text-red-400/70" : "text-white/25"
+                          }`}>
+                            {s.km.toLocaleString()} km
+                          </span>
+                          <span className="text-[9px] text-white/25">{s.meses} meses</span>
+                          {realizado && (
+                            <span className="rounded-full bg-green-500/15 px-1.5 py-0.5 text-[9px] font-medium text-green-400">Realizado</span>
+                          )}
+                          {isProximo && !realizado && (
+                            <span className="rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ background: healthColor + "20", color: healthColor }}>
+                              {status.label}
+                            </span>
+                          )}
+                          {isPast && !realizado && !isProximo && (
+                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-red-400">Vencido sin registro</span>
+                          )}
+                          {!isPast && !isProximo && (
+                            <span className="rounded-full bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-white/20">Pendiente</span>
+                          )}
+                        </div>
+                        {realizado ? (
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-white/30">
+                            {realizado.fecha && <span>📅 {formatDate(realizado.fecha)}</span>}
+                            <span>💰 {formatCurrency(realizado.costoReal ?? realizado.costo)}</span>
+                            {realizado.agencia && <span>🏪 {realizado.agencia}</span>}
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 flex items-center gap-3 text-[10px] text-white/20">
+                            <span>Est. {formatCurrency(s.costo)}</span>
+                            {isProximo && (
+                              <button
+                                type="button"
+                                onClick={() => onRegistrar(s.km)}
+                                className="rounded border border-byd-500/30 bg-byd-500/10 px-1.5 py-0.5 text-[9px] font-medium text-byd-400 hover:bg-byd-500/20"
+                              >
+                                + Registrar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── KPIs ── */}
       {(mantenimientoList.length > 0 || otrosCostosList.length > 0) && (
@@ -2607,24 +3072,38 @@ function SeccionMantenimiento({
 
       {/* ── Próximo servicio ── */}
       {proximo ? (
-        <div className={`rounded-xl border border-white/5 p-4 sm:p-5 ${status.bg}`}>
+        <div className={`rounded-xl border p-4 sm:p-5 ${status.bg} ${status.borderColor}`}>
+          {/* Header */}
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white/80">🔧 Próximo mantenimiento</h3>
-            <div className="flex items-center gap-2">
-              <span className={`flex items-center gap-1.5 rounded-full border border-white/5 px-2.5 py-0.5 text-[11px] font-medium ${status.color} ${status.bg}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-                {status.label}
-              </span>
-              <button
-                type="button"
-                onClick={() => onRegistrar(proximo.km)}
-                className="rounded-lg border border-byd-500/30 bg-byd-500/10 px-2.5 py-1 text-[11px] font-medium text-byd-400 transition-colors hover:bg-byd-500/20"
-              >
-                + Registrar servicio
-              </button>
+            <button
+              type="button"
+              onClick={() => onRegistrar(proximo.km)}
+              className="rounded-lg border border-byd-500/30 bg-byd-500/10 px-2.5 py-1 text-[11px] font-medium text-byd-400 transition-colors hover:bg-byd-500/20"
+            >
+              + Registrar servicio
+            </button>
+          </div>
+
+          {/* Alert banner */}
+          <div className={`mb-4 flex items-center gap-3 rounded-xl px-4 py-3 ${status.bg} border ${status.borderColor}`}>
+            <span className="text-xl leading-none">{status.icon}</span>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-semibold ${status.color}`}>{status.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.color} border ${status.borderColor}`}>
+                  {kmRestantes <= 0 ? "km vencido" : `${kmRestantes.toLocaleString()} km restantes`}
+                  {mesesRestantes !== undefined && (
+                    <> · {mesesRestantes <= 0 ? "tiempo vencido" : `${mesesRestantes} mes${mesesRestantes !== 1 ? "es" : ""}`}</>
+                  )}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-white/40">{status.message}</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
             <div>
               <p className="text-[11px] text-white/35">Odómetro actual</p>
               <p className="font-semibold text-white/80">{odometroActual.toLocaleString()} km</p>
@@ -2640,10 +3119,20 @@ function SeccionMantenimiento({
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-white/35">Costo estimado</p>
-              <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
+              <p className="text-[11px] text-white/35">
+                {mesesRestantes !== undefined ? "Meses restantes" : "Costo estimado"}
+              </p>
+              {mesesRestantes !== undefined ? (
+                <p className={`font-semibold ${mesesRestantes <= 0 ? "text-red-400" : mesesRestantes <= 2 ? "text-amber-400" : "text-white/80"}`}>
+                  {mesesRestantes <= 0 ? "Vencido" : `${mesesRestantes} mes${mesesRestantes !== 1 ? "es" : ""}`}
+                </p>
+              ) : (
+                <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
+              )}
             </div>
           </div>
+
+          {/* Progress bar */}
           <div className="mt-4">
             <div className="mb-1 flex justify-between text-[10px] text-white/30">
               <span>{anterior ? anterior.km.toLocaleString() : "0"} km</span>
@@ -2653,12 +3142,21 @@ function SeccionMantenimiento({
             <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  kmRestantes <= 500 ? "bg-red-400" : kmRestantes <= 2000 ? "bg-amber-400" : "bg-green-400"
+                  kmRestantes <= 0 ? "bg-red-400" :
+                  kmRestantes <= 500 ? "bg-red-400" :
+                  kmRestantes <= 2000 ? "bg-amber-400" : "bg-green-400"
                 }`}
                 style={{ width: `${progressPct}%` }}
               />
             </div>
           </div>
+
+          {/* Costo estimado (shown when mesesRestantes replaces the 4th stat) */}
+          {mesesRestantes !== undefined && (
+            <p className="mt-3 text-right text-[10px] text-white/25">
+              Costo estimado: <span className="font-medium text-white/45">{formatCurrency(proximo.costo)}</span>
+            </p>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 text-center">

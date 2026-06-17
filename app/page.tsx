@@ -30,6 +30,7 @@ interface CargaEntry {
   costo: number;
   costoPorKwh: number;
   kmEvObtenidos: number;
+  notas?: string | null;
 }
 
 interface ChecklistItemState {
@@ -385,6 +386,57 @@ async function insertCargaElectrica(
   return { id, error: null };
 }
 
+async function updateCargaElectrica(
+  id: number,
+  row: Omit<CargaElectricaRow, "id" | "created_at">
+): Promise<{ error: string | null }> {
+  const sb = getSupabaseClient();
+  if (!sb) {
+    return { error: "Cliente Supabase no disponible. Verifica .env.local" };
+  }
+
+  const { error } = await sb.from("cargas_electricas").update(row as never).eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al actualizar carga eléctrica:", { id, message: error.message, payload: row });
+    return { error: error.message };
+  }
+  console.log("[BYD Wallet] Carga eléctrica actualizada (id:", id, ")");
+  return { error: null };
+}
+
+async function deleteCargaElectrica(id: number): Promise<{ error: string | null }> {
+  const sb = getSupabaseClient();
+  if (!sb) {
+    return { error: "Cliente Supabase no disponible. Verifica .env.local" };
+  }
+
+  const { error } = await sb.from("cargas_electricas").delete().eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al eliminar carga eléctrica:", { id, message: error.message });
+    return { error: error.message };
+  }
+  console.log("[BYD Wallet] Carga eléctrica eliminada (id:", id, ")");
+  return { error: null };
+}
+
+function isCargaSupabaseDb(id: string): boolean {
+  return /^\d+$/.test(id);
+}
+
+function cargaEntryToDbRow(entry: CargaEntry): Omit<CargaElectricaRow, "id" | "created_at"> {
+  return {
+    fecha: entry.fecha,
+    odometro_km: null,
+    porcentaje_inicio: entry.pctInicial,
+    porcentaje_fin: entry.pctFinal,
+    kwh_estimados: entry.kwhCargados,
+    tarifa_kwh_mxn: entry.costoPorKwh,
+    costo_total_mxn: entry.costo,
+    tipo_carga: entry.tipo,
+    notas: entry.notas ?? null,
+  };
+}
+
 function mapRecargaEvToCargaEntry(r: RecargaRow, rendimientoKmKwh: number): CargaEntry {
   const kwhFromDist = Number(r.distancia_km || 0) / rendimientoKmKwh;
   return {
@@ -416,6 +468,7 @@ function mapCargaElectricaToEntry(r: CargaElectricaRow, rendimientoKmKwh: number
     costo,
     costoPorKwh: Number(r.tarifa_kwh_mxn || 0) || (kwh > 0 ? Math.round(costo / kwh) : 0),
     kmEvObtenidos: kwh > 0 ? Math.round(kwh * rendimientoKmKwh) : 0,
+    notas: r.notas,
   };
 }
 
@@ -987,17 +1040,21 @@ function CargaForm({
   onClose,
   saving = false,
   externalError = null,
+  initialData,
+  isEdit,
 }: {
   onSave: (entry: CargaEntry) => void | Promise<void>;
   onClose: () => void;
   saving?: boolean;
   externalError?: string | null;
+  initialData?: CargaEntry | null;
+  isEdit?: boolean;
 }) {
-  const [tipo, setTipo] = useState<"CCS2" | "AC 7kW" | "AC 22kW">("CCS2");
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
-  const [pctInicial, setPctInicial] = useState("");
-  const [pctFinal, setPctFinal] = useState("");
-  const [costoTotal, setCostoTotal] = useState("");
+  const [tipo, setTipo] = useState<"CCS2" | "AC 7kW" | "AC 22kW">(initialData?.tipo ?? "CCS2");
+  const [fecha, setFecha] = useState(initialData?.fecha ?? new Date().toISOString().split("T")[0]);
+  const [pctInicial, setPctInicial] = useState(initialData != null ? String(initialData.pctInicial) : "");
+  const [pctFinal, setPctFinal] = useState(initialData != null ? String(initialData.pctFinal) : "");
+  const [costoTotal, setCostoTotal] = useState(initialData != null ? String(initialData.costo) : "");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -1040,7 +1097,7 @@ function CargaForm({
     }
 
     const entry: CargaEntry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
       fecha,
       tipo,
       pctInicial: pctIni,
@@ -1049,6 +1106,7 @@ function CargaForm({
       costo,
       costoPorKwh,
       kmEvObtenidos,
+      notas: initialData?.notas ?? null,
     };
 
     setIsSubmitting(true);
@@ -1117,7 +1175,7 @@ function CargaForm({
           Cancelar
         </button>
         <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-50">
-          {busy ? "Guardando..." : "Guardar"}
+          {busy ? "Guardando..." : isEdit ? "Actualizar" : "Guardar"}
         </button>
       </div>
     </form>
@@ -1509,6 +1567,7 @@ function HistoryTable({
   mantenimientoList,
   otrosCostosList,
   onViewGasolina,
+  onViewCarga,
   onViewCfe,
   onNavigate,
 }: {
@@ -1518,6 +1577,7 @@ function HistoryTable({
   mantenimientoList: MantenimientoEntry[];
   otrosCostosList: OtroCostoEntry[];
   onViewGasolina: (entry: GasolinaEntry) => void;
+  onViewCarga: (entry: CargaEntry) => void;
   onViewCfe: (periodo: PeriodoElectricoRow) => void;
   onNavigate: (section: Section) => void;
 }) {
@@ -1548,12 +1608,12 @@ function HistoryTable({
         id: `ev-${e.id}`,
         fecha: e.fecha,
         tipo: "Carga EV",
-        descripcion: `Carga ${e.tipo}`,
+        descripcion: `${e.tipo} · ${e.kwhCargados.toFixed(1)} kWh`,
         importe: e.costo,
-        observaciones: `${e.kwhCargados.toFixed(1)} kWh · ${e.pctInicial}% → ${e.pctFinal}%`,
+        observaciones: `${e.pctInicial}% → ${e.pctFinal}% · ${e.kmEvObtenidos.toLocaleString()} km EV`,
         category: "electricidad",
         sortKey: dateSortValue(e.fecha),
-        onViewDetail: () => onNavigate("cargas"),
+        onViewDetail: () => onViewCarga(e),
       });
     });
 
@@ -1604,7 +1664,7 @@ function HistoryTable({
     });
 
     return rows.sort((a, b) => b.sortKey - a.sortKey);
-  }, [gasolinaList, cargasList, periodosElectricos, mantenimientoList, otrosCostosList, onViewGasolina, onViewCfe, onNavigate]);
+  }, [gasolinaList, cargasList, periodosElectricos, mantenimientoList, otrosCostosList, onViewGasolina, onViewCarga, onViewCfe, onNavigate]);
 
   const filtered = allRows.filter((row) => {
     if (categoryFilter !== "todos" && row.category !== categoryFilter) return false;
@@ -2712,6 +2772,40 @@ function costoBydFromPeriodo(p: PeriodoElectricoRow, cargas: CargaEntry[] = []):
   return Math.round(bydInfo.value * rate * 100) / 100;
 }
 
+/** Centro de Energía configurado → gasto BYD desde recibos CFE; si no, suma directa de Cargas EV. */
+function hasCentroEnergiaConfigurado(periodos: PeriodoElectricoRow[]): boolean {
+  return periodos.length > 0;
+}
+
+function getTotalGastoElectricoByd(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
+  if (hasCentroEnergiaConfigurado(periodos)) {
+    return Math.round(
+      periodos.reduce((s, p) => s + costoBydFromPeriodo(p, cargas), 0) * 100,
+    ) / 100;
+  }
+  return Math.round(cargas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
+}
+
+function getGastoElectricoBydAnual(periodos: PeriodoElectricoRow[], cargas: CargaEntry[]): number {
+  const year = new Date().getFullYear();
+  if (hasCentroEnergiaConfigurado(periodos)) {
+    return Math.round(
+      periodos.reduce((s, p) => {
+        const fin = normalizeDate(p.fecha_fin);
+        if (!fin || fin.getFullYear() !== year) return s;
+        return s + costoBydFromPeriodo(p, cargas);
+      }, 0) * 100,
+    ) / 100;
+  }
+  return Math.round(
+    cargas.reduce((s, c) => {
+      const d = normalizeDate(c.fecha);
+      if (!d || d.getFullYear() !== year) return s;
+      return s + c.costo;
+    }, 0) * 100,
+  ) / 100;
+}
+
 function getDashboardEstadoMantenimiento(
   odometroActual: number,
   proximo: { km: number } | null,
@@ -2771,6 +2865,15 @@ function buildDashboardGastoPorMes12(
     const m = find(key);
     if (m) m.electricidad += costoByd;
   });
+
+  if (!hasCentroEnergiaConfigurado(periodosElectricos)) {
+    cargasList.forEach((c) => {
+      const key = monthKeyFromIso(c.fecha);
+      if (!key) return;
+      const m = find(key);
+      if (m) m.electricidad += c.costo;
+    });
+  }
 
   mantenimientoRows.forEach((e) => {
     const key = monthKeyFromIso(e.fecha);
@@ -2896,20 +2999,27 @@ function GastoDistribucionPie({ segments }: {
 }
 
 // ── ActividadReciente ─────────────────────────────────────────────────────
-function ActividadReciente({ gasolinaList, onNavigate }: { gasolinaList: GasolinaEntry[]; onNavigate: (s: Section) => void }) {
-  const cargas      = loadData<CargaEntry[]>(KEYS.cargas, []);
+function ActividadReciente({
+  gasolinaList,
+  cargasList,
+  onNavigate,
+}: {
+  gasolinaList: GasolinaEntry[];
+  cargasList: CargaEntry[];
+  onNavigate: (s: Section) => void;
+}) {
   const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
   const otros       = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, []);
 
   const items = useMemo(() => {
     const all = [
       ...gasolinaList.map((e)  => ({ id: e.id, fecha: e.fecha, label: e.concepto || "Carga gasolina", monto: e.costo,             icon: "⛽", color: "#f59e0b", section: "gasolina"     as Section })),
-      ...cargas.map((e)    => ({ id: e.id, fecha: e.fecha, label: `Carga EV ${e.tipo}`,            monto: e.costo,             icon: "⚡", color: "#34d399", section: "cargas"       as Section })),
+      ...cargasList.map((e)    => ({ id: e.id, fecha: e.fecha, label: `Carga EV ${e.tipo}`,            monto: e.costo,             icon: "⚡", color: "#34d399", section: "cargas"       as Section })),
       ...mantenimiento.map((e) => ({ id: e.id, fecha: e.fecha ?? "", label: e.servicio || "Mantenimiento", monto: e.costoReal ?? e.costo, icon: "🔧", color: "#60a5fa", section: "mantenimiento" as Section })),
       ...otros.map((e)     => ({ id: e.id, fecha: e.fecha ?? "", label: e.concepto,                monto: e.costo,             icon: "🔩", color: "#c084fc", section: "mantenimiento" as Section })),
     ];
-    return all.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).slice(0, 5);
-  }, [gasolinaList]);
+    return all.sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha)).slice(0, 5);
+  }, [gasolinaList, cargasList]);
 
   if (items.length === 0) return null;
   return (
@@ -2976,9 +3086,7 @@ function SeccionDashboard({
   // ── Integrated spend ──────────────────────────────────────────────────
   const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
   const totalOtros   = otrosCostosList.reduce((s, e) => s + e.costo, 0);
-  const totalElec    = periodosElectricos.reduce(
-    (s, p) => s + costoBydFromPeriodo(p, cargasList), 0,
-  );
+  const totalElec    = getTotalGastoElectricoByd(periodosElectricos, cargasList);
   const totalIntegrado = gastoGasolina + totalElec + totalOficial + totalOtros;
   const costoPorKmGlobal =
     odometroActual > 0 ? Math.round((totalIntegrado / odometroActual) * 100) / 100 : 0;
@@ -3031,11 +3139,7 @@ function SeccionDashboard({
   const tarifaRecibo = energiaCostos?.costoKwh ?? null;
   const gastoBydMensual = energiaCostos?.costoByd ?? null;
   const gastoCasaMensual = energiaCostos?.costoCasa ?? null;
-  const gastoAnualByd = periodosElectricos.reduce((s, p) => {
-    const fin = normalizeDate(p.fecha_fin);
-    if (!fin || fin.getFullYear() !== new Date().getFullYear()) return s;
-    return s + costoBydFromPeriodo(p, cargasList);
-  }, 0);
+  const gastoAnualByd = getGastoElectricoBydAnual(periodosElectricos, cargasList);
 
   // ── Spend proportions (for stacked bar) ──────────────────────────────
   const segments = [
@@ -3093,7 +3197,7 @@ function SeccionDashboard({
               </div>
             </div>
           </div>
-          <ActividadReciente gasolinaList={gasolinaList} onNavigate={onNavigate} />
+          <ActividadReciente gasolinaList={gasolinaList} cargasList={cargasList} onNavigate={onNavigate} />
         </div>
 
         {/* ── RIGHT: Module summary cards ── */}
@@ -5041,6 +5145,9 @@ export default function Home() {
   const [deletingOtroCosto, setDeletingOtroCosto] = useState<OtroCostoEntry | null>(null);
   const [cargaSaveError, setCargaSaveError] = useState<string | null>(null);
   const [savingCarga, setSavingCarga] = useState(false);
+  const [cargaEnDetalle, setCargaEnDetalle] = useState<CargaEntry | null>(null);
+  const [editingCarga, setEditingCarga] = useState<CargaEntry | null>(null);
+  const [deletingCarga, setDeletingCarga] = useState<CargaEntry | null>(null);
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -5266,31 +5373,57 @@ export default function Home() {
     setCargaSaveError(null);
     setSavingCarga(true);
 
-    const result = await insertCargaElectrica({
-      fecha: entry.fecha,
-      odometro_km: null,
-      porcentaje_inicio: entry.pctInicial,
-      porcentaje_fin: entry.pctFinal,
-      kwh_estimados: entry.kwhCargados,
-      tarifa_kwh_mxn: entry.costoPorKwh,
-      costo_total_mxn: entry.costo,
-      tipo_carga: entry.tipo,
-      notas: null,
-    });
+    const row = cargaEntryToDbRow(entry);
+    let errorMessage: string | null = null;
+
+    if (isCargaSupabaseDb(entry.id)) {
+      const result = await updateCargaElectrica(Number(entry.id), row);
+      errorMessage = result.error;
+    } else {
+      const result = await insertCargaElectrica(row);
+      if (result.error || result.id == null) {
+        errorMessage = result.error
+          || "No se pudo guardar la carga en Supabase. Verifica permisos RLS en cargas_electricas.";
+      }
+    }
 
     setSavingCarga(false);
 
-    if (result.error || result.id == null) {
-      const message = result.error
-        || "No se pudo guardar la carga en Supabase. Verifica permisos RLS en cargas_electricas.";
-      setCargaSaveError(message);
-      throw new Error(message);
+    if (errorMessage) {
+      setCargaSaveError(errorMessage);
+      throw new Error(errorMessage);
     }
 
     const refreshed = await fetchCargasElectricasFromSupabase();
     setCargasElectricasDb(refreshed);
     setCargaSaveError(null);
     setFormModal(null);
+    setEditingCarga(null);
+  }, []);
+
+  const handleDeleteCarga = useCallback(async function (entry: CargaEntry) {
+    if (!isCargaSupabaseDb(entry.id)) {
+      const list = loadData<CargaEntry[]>(KEYS.cargas, []).filter((e) => e.id !== entry.id);
+      saveData(KEYS.cargas, list);
+      setDeletingCarga(null);
+      setKpiVersion((v) => v + 1);
+      return;
+    }
+
+    setSavingCarga(true);
+    const result = await deleteCargaElectrica(Number(entry.id));
+    setSavingCarga(false);
+
+    if (result.error) {
+      setCargaSaveError(result.error);
+      setDeletingCarga(null);
+      return;
+    }
+
+    const refreshed = await fetchCargasElectricasFromSupabase();
+    setCargasElectricasDb(refreshed);
+    setDeletingCarga(null);
+    setCargaEnDetalle((current) => (current?.id === entry.id ? null : current));
   }, []);
 
   const handleUpdateGasolina = useCallback(function (updated: GasolinaEntry) {
@@ -5624,9 +5757,44 @@ export default function Home() {
                         </p>
                       </div>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-xs font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
-                      <p className="text-[9px] text-white/30">{entry.kmEvObtenidos} km</p>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-byd-400">{formatCurrency(entry.costo)}</p>
+                        <p className="text-[9px] text-white/30">{entry.kmEvObtenidos} km</p>
+                      </div>
+                      <div className="ml-0.5 flex gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setCargaEnDetalle(entry)}
+                          className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Ver detalle"
+                        >
+                          📋
+                        </button>
+                        {isCargaSupabaseDb(entry.id) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCargaSaveError(null);
+                                setEditingCarga(entry);
+                              }}
+                              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                              title="Editar"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingCarga(entry)}
+                              className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                              title="Eliminar"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -5662,6 +5830,7 @@ export default function Home() {
               mantenimientoList={mantenimientoList}
               otrosCostosList={otrosCostosList}
               onViewGasolina={(entry) => setGasolinaEnDetalle(entry)}
+              onViewCarga={(entry) => setCargaEnDetalle(entry)}
               onViewCfe={(periodo) => setReciboEnDetalle(periodo)}
               onNavigate={setSection}
             />
@@ -5739,6 +5908,89 @@ export default function Home() {
           externalError={cargaSaveError}
         />
       </Modal>
+
+      {/* ═══ Carga EV detail modal ═══ */}
+      <Modal isOpen={!!cargaEnDetalle} onClose={() => setCargaEnDetalle(null)} title="⚡ Detalle de carga EV">
+        {cargaEnDetalle && (
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-white/40">Fecha</span>
+              <span className="font-medium text-white/80">{formatDate(cargaEnDetalle.fecha)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Tipo de carga</span>
+              <span className="font-medium text-white/80">{cargaEnDetalle.tipo}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Batería inicial</span>
+              <span className="font-medium text-white/80">{cargaEnDetalle.pctInicial}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Batería final</span>
+              <span className="font-medium text-white/80">{cargaEnDetalle.pctFinal}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">kWh cargados</span>
+              <span className="font-medium text-white/80">{cargaEnDetalle.kwhCargados.toFixed(1)} kWh</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Costo por kWh</span>
+              <span className="font-medium text-white/80">{formatCurrency(cargaEnDetalle.costoPorKwh)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Costo total</span>
+              <span className="font-medium text-byd-400">{formatCurrency(cargaEnDetalle.costo)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Km EV obtenidos</span>
+              <span className="font-medium text-white/80">{cargaEnDetalle.kmEvObtenidos.toLocaleString()} km</span>
+            </div>
+            {cargaEnDetalle.notas && (
+              <div className="flex justify-between gap-4">
+                <span className="shrink-0 text-white/40">Notas</span>
+                <span className="text-right font-medium text-white/80">{cargaEnDetalle.notas}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ═══ Editar carga EV modal ═══ */}
+      <Modal
+        isOpen={!!editingCarga}
+        onClose={() => {
+          if (!savingCarga) {
+            setCargaSaveError(null);
+            setEditingCarga(null);
+          }
+        }}
+        title="✏️ Editar carga eléctrica"
+      >
+        {editingCarga && (
+          <CargaForm
+            initialData={editingCarga}
+            isEdit
+            onSave={handleSaveCarga}
+            onClose={() => {
+              if (!savingCarga) {
+                setCargaSaveError(null);
+                setEditingCarga(null);
+              }
+            }}
+            saving={savingCarga}
+            externalError={cargaSaveError}
+          />
+        )}
+      </Modal>
+
+      {/* ═══ Eliminar carga EV confirm ═══ */}
+      <ConfirmDialog
+        isOpen={!!deletingCarga}
+        title="Eliminar carga EV"
+        message={`¿Eliminar la carga del ${deletingCarga ? formatDateShort(deletingCarga.fecha) : ""} (${deletingCarga?.kwhCargados.toFixed(1)} kWh)? Esta acción no se puede deshacer.`}
+        onConfirm={() => deletingCarga && handleDeleteCarga(deletingCarga)}
+        onCancel={() => setDeletingCarga(null)}
+      />
 
       <Modal isOpen={formModal === "mantenimiento"} onClose={() => setFormModal(null)} title="Agregar mantenimiento">
         <MantenimientoForm

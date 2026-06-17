@@ -32,6 +32,20 @@ export interface ConfiguracionRow {
   odometro_actual_km: number;
 }
 
+export interface PeriodoElectricoRow {
+  id: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+  kwh_bimestre: number;
+  costo_total_mxn: number;
+  costo_kwh_mxn: number | null;
+  proveedor: string | null;
+  tarifa: string | null;
+  numero_recibo: string | null;
+  notas: string | null;
+  created_at: string | null;
+}
+
 // ── Client — lazy singleton ──────────────────────────────────────────────
 
 let client: ReturnType<typeof createClient> | null = null;

@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend,
 } from "recharts";
-import { getSupabaseClient, type RecargaRow, type ConfiguracionRow } from "@/lib/supabase";
+import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -309,6 +309,32 @@ async function fetchConfigFromSupabase(): Promise<ConfiguracionRow | null> {
   console.log("[BYD Wallet] Configuración obtenida:", config);
   return config;
 }
+
+async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRow[]> {
+  console.log("[BYD Wallet] Consultando periodos_electricos desde Supabase...");
+  const sb = getSupabaseClient();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("periodos_electricos")
+    .select("*")
+    .order("fecha_inicio", { ascending: false });
+
+  if (error) {
+    console.warn("[BYD Wallet] Error al consultar periodos_electricos:", error.message);
+    return [];
+  }
+
+  const periodos = (data || []) as PeriodoElectricoRow[];
+  console.log("[BYD Wallet] Periodos eléctricos encontrados:", periodos.length);
+
+  if (periodos.length > 0) {
+    const ultimo = periodos[0];
+    console.log("[BYD Wallet] Último periodo — costo_kwh_mxn:", ultimo.costo_kwh_mxn);
+  }
+
+  return periodos;
+}
+
 // ── KPI computation from Supabase data ───────────────────────────────────────
 function computeKpisFromRecargas(recargas: RecargaRow[], config: ConfiguracionRow | null) {
   console.log("[BYD Wallet] Calculando KPIs con", recargas.length, "recargas");
@@ -1789,6 +1815,9 @@ export default function Home() {
         ]);
         setRecargas(recargasData);
         setConfig(configData);
+
+        // Carga adicional de periodos eléctricos (independiente, no bloquea)
+        fetchPeriodosElectricosFromSupabase();
 
         if (recargasData.length === 0) {
           console.warn("[BYD Wallet] No se encontraron recargas en Supabase");

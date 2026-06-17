@@ -2354,45 +2354,146 @@ function KpiChip({ label, value, sub, color, colorHex }: {
   );
 }
 
+// ── Dashboard data helpers ─────────────────────────────────────────────────
+function monthKeyLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthKeyFromIso(iso: string): string {
+  return iso.length >= 7 ? iso.slice(0, 7) : monthKeyLocal(new Date(iso));
+}
+
+function costoBydFromPeriodo(p: PeriodoElectricoRow): number {
+  const kwh = p.kwh_byd_periodo != null ? Number(p.kwh_byd_periodo) : 0;
+  const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
+  if (kwh <= 0 || rate <= 0) return 0;
+  return Math.round(kwh * rate * 100) / 100;
+}
+
+function findPeriodoVigente(periodos: PeriodoElectricoRow[]): PeriodoElectricoRow | null {
+  const now = new Date();
+  const covering = periodos.filter((p) => {
+    const start = new Date(`${p.fecha_inicio}T12:00:00`);
+    const fin = new Date(`${p.fecha_fin}T12:00:00`);
+    return now >= start && now <= fin;
+  });
+  if (covering.length > 0) {
+    return covering.sort((a, b) => b.fecha_fin.localeCompare(a.fecha_fin))[0];
+  }
+  return periodos.length > 0
+    ? [...periodos].sort((a, b) => b.fecha_fin.localeCompare(a.fecha_fin))[0]
+    : null;
+}
+
+/** Prorratea el costo del recibo CFE vigente al mes calendario actual. */
+function gastoMensualProrrateadoFromPeriodo(
+  periodos: PeriodoElectricoRow[],
+  tipo: "byd" | "casa",
+): number | null {
+  const vigente = findPeriodoVigente(periodos);
+  if (!vigente) return null;
+
+  const kwhTotal = Number(vigente.kwh_bimestre || 0);
+  const kwhByd = vigente.kwh_byd_periodo != null ? Number(vigente.kwh_byd_periodo) : 0;
+  const kwh = tipo === "byd" ? kwhByd : Math.max(0, kwhTotal - kwhByd);
+  const rate = vigente.costo_kwh_mxn ? Number(vigente.costo_kwh_mxn) : 0;
+  if (kwh <= 0 || rate <= 0) return null;
+
+  const costoPeriodo = Math.round(kwh * rate * 100) / 100;
+  const start = new Date(`${vigente.fecha_inicio}T12:00:00`);
+  const fin = new Date(`${vigente.fecha_fin}T12:00:00`);
+  const periodDays = Math.max(1, Math.round((fin.getTime() - start.getTime()) / 86400000) + 1);
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const overlapStart = new Date(Math.max(start.getTime(), monthStart.getTime()));
+  const overlapEnd = new Date(Math.min(fin.getTime(), monthEnd.getTime()));
+  if (overlapEnd < overlapStart) return null;
+
+  const daysInMonth = Math.max(1, Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1);
+  return Math.round((costoPeriodo * daysInMonth / periodDays) * 100) / 100;
+}
+
+function getDashboardEstadoMantenimiento(
+  odometroActual: number,
+  proximo: { km: number } | null,
+  kmRestantes: number,
+): string {
+  if (!proximo) return "Completado";
+  if (odometroActual >= proximo.km) return "Vencido";
+  if (kmRestantes <= 500) return "Urgente";
+  if (kmRestantes <= 2000) return "Próximo";
+  return "Al día";
+}
+
+type DashboardGastoMes = {
+  key: string;
+  label: string;
+  gasolina: number;
+  electricidad: number;
+  mantenimiento: number;
+  otros: number;
+};
+
+function buildDashboardGastoPorMes12(
+  gasolinaList: GasolinaEntry[],
+  periodosElectricos: PeriodoElectricoRow[],
+  mantenimientoList: MantenimientoEntry[],
+  otrosCostosList: OtroCostoEntry[],
+): DashboardGastoMes[] {
+  const now = new Date();
+  const months: DashboardGastoMes[] = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    return {
+      key: monthKeyLocal(d),
+      label: d.toLocaleDateString("es-MX", { month: "short", year: "2-digit" }),
+      gasolina: 0,
+      electricidad: 0,
+      mantenimiento: 0,
+      otros: 0,
+    };
+  });
+  const find = (k: string) => months.find((m) => m.key === k);
+
+  gasolinaList.forEach((e) => {
+    const m = find(monthKeyFromIso(e.fecha));
+    if (m) m.gasolina += e.costo;
+  });
+
+  periodosElectricos.forEach((p) => {
+    const costoByd = costoBydFromPeriodo(p);
+    if (costoByd <= 0) return;
+    const m = find(monthKeyFromIso(p.fecha_fin));
+    if (m) m.electricidad += costoByd;
+  });
+
+  mantenimientoList.forEach((e) => {
+    if (!e.fecha) return;
+    const m = find(monthKeyFromIso(e.fecha));
+    if (m) m.mantenimiento += e.costoReal ?? e.costo;
+  });
+
+  otrosCostosList.forEach((e) => {
+    if (!e.fecha) return;
+    const m = find(monthKeyFromIso(e.fecha));
+    if (m) m.otros += e.costo;
+  });
+
+  return months;
+}
+
 // ── GastoEvolucionLine ────────────────────────────────────────────────────
-function GastoEvolucionLine({ periodosElectricos, mantenimientoList, otrosCostosList }: {
+function GastoEvolucionLine({ gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList }: {
+  gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
   mantenimientoList: MantenimientoEntry[];
   otrosCostosList: OtroCostoEntry[];
 }) {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas   = loadData<CargaEntry[]>(KEYS.cargas, []);
-
-  const data = useMemo(() => {
-    const now = new Date();
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
-      return {
-        key: d.toISOString().slice(0, 7),
-        label: d.toLocaleDateString("es-MX", { month: "short", year: "2-digit" }),
-        gasolina: 0, electricidad: 0, mantenimiento: 0, otros: 0,
-      };
-    });
-    const find = (k: string) => months.find((m) => m.key === k);
-    gasolina.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.gasolina += e.costo; });
-    cargas.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.electricidad += e.costo; });
-    periodosElectricos.forEach((p) => {
-      const m = find(p.fecha_inicio.slice(0, 7));
-      if (m) m.electricidad += Number(p.costo_total_mxn);
-    });
-    mantenimientoList.forEach((e) => {
-      if (!e.fecha) return;
-      const m = find(e.fecha.slice(0, 7));
-      if (m) m.mantenimiento += e.costoReal ?? e.costo;
-    });
-    otrosCostosList.forEach((e) => {
-      if (!e.fecha) return;
-      const m = find(e.fecha.slice(0, 7));
-      if (m) m.otros += e.costo;
-    });
-    return months;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodosElectricos, mantenimientoList, otrosCostosList]);
+  const data = useMemo(
+    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList),
+    [gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList],
+  );
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
@@ -2405,9 +2506,9 @@ function GastoEvolucionLine({ periodosElectricos, mantenimientoList, otrosCostos
           <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }} formatter={(v: unknown) => [formatCurrency(Number(v))]} />
           <Legend wrapperStyle={{ paddingTop: 4 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9 }}>{value}</span>} />
           <Line type="monotone" dataKey="gasolina"     stroke="#f59e0b" strokeWidth={1.5} dot={false} name="Gasolina" />
-          <Line type="monotone" dataKey="electricidad" stroke="#34d399" strokeWidth={1.5} dot={false} name="Electricidad" />
+          <Line type="monotone" dataKey="electricidad" stroke="#34d399" strokeWidth={1.5} dot={false} name="Electricidad BYD" />
           <Line type="monotone" dataKey="mantenimiento" stroke="#60a5fa" strokeWidth={1.5} dot={false} name="Mantenimiento" />
-          <Line type="monotone" dataKey="otros"        stroke="#c084fc" strokeWidth={1.5} dot={false} name="Otros" />
+          <Line type="monotone" dataKey="otros"        stroke="#c084fc" strokeWidth={1.5} dot={false} name="Otros costos" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -2415,29 +2516,16 @@ function GastoEvolucionLine({ periodosElectricos, mantenimientoList, otrosCostos
 }
 
 // ── GastoComparativoStacked ───────────────────────────────────────────────
-function GastoComparativoStacked({ periodosElectricos, mantenimientoList, otrosCostosList }: {
+function GastoComparativoStacked({ gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList }: {
+  gasolinaList: GasolinaEntry[];
   periodosElectricos: PeriodoElectricoRow[];
   mantenimientoList: MantenimientoEntry[];
   otrosCostosList: OtroCostoEntry[];
 }) {
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas   = loadData<CargaEntry[]>(KEYS.cargas, []);
-
-  const data = useMemo(() => {
-    const now = new Date();
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
-      return { key: d.toISOString().slice(0, 7), label: d.toLocaleDateString("es-MX", { month: "short", year: "2-digit" }), gasolina: 0, electricidad: 0, mantenimiento: 0, otros: 0 };
-    });
-    const find = (k: string) => months.find((m) => m.key === k);
-    gasolina.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.gasolina += e.costo; });
-    cargas.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.electricidad += e.costo; });
-    periodosElectricos.forEach((p) => { const m = find(p.fecha_inicio.slice(0, 7)); if (m) m.electricidad += Number(p.costo_total_mxn); });
-    mantenimientoList.forEach((e) => { if (!e.fecha) return; const m = find(e.fecha.slice(0, 7)); if (m) m.mantenimiento += e.costoReal ?? e.costo; });
-    otrosCostosList.forEach((e) => { if (!e.fecha) return; const m = find(e.fecha.slice(0, 7)); if (m) m.otros += e.costo; });
-    return months;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodosElectricos, mantenimientoList, otrosCostosList]);
+  const data = useMemo(
+    () => buildDashboardGastoPorMes12(gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList),
+    [gasolinaList, periodosElectricos, mantenimientoList, otrosCostosList],
+  );
 
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
@@ -2500,22 +2588,20 @@ function GastoDistribucionPie({ segments }: {
 }
 
 // ── ActividadReciente ─────────────────────────────────────────────────────
-function ActividadReciente({ onNavigate }: { onNavigate: (s: Section) => void }) {
-  const gasolina    = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+function ActividadReciente({ gasolinaList, onNavigate }: { gasolinaList: GasolinaEntry[]; onNavigate: (s: Section) => void }) {
   const cargas      = loadData<CargaEntry[]>(KEYS.cargas, []);
   const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
   const otros       = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, []);
 
   const items = useMemo(() => {
     const all = [
-      ...gasolina.map((e)  => ({ id: e.id, fecha: e.fecha, label: e.concepto || "Carga gasolina", monto: e.costo,             icon: "⛽", color: "#f59e0b", section: "gasolina"     as Section })),
+      ...gasolinaList.map((e)  => ({ id: e.id, fecha: e.fecha, label: e.concepto || "Carga gasolina", monto: e.costo,             icon: "⛽", color: "#f59e0b", section: "gasolina"     as Section })),
       ...cargas.map((e)    => ({ id: e.id, fecha: e.fecha, label: `Carga EV ${e.tipo}`,            monto: e.costo,             icon: "⚡", color: "#34d399", section: "cargas"       as Section })),
       ...mantenimiento.map((e) => ({ id: e.id, fecha: e.fecha ?? "", label: e.servicio || "Mantenimiento", monto: e.costoReal ?? e.costo, icon: "🔧", color: "#60a5fa", section: "mantenimiento" as Section })),
       ...otros.map((e)     => ({ id: e.id, fecha: e.fecha ?? "", label: e.concepto,                monto: e.costo,             icon: "🔩", color: "#c084fc", section: "mantenimiento" as Section })),
     ];
     return all.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).slice(0, 5);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [gasolinaList]);
 
   if (items.length === 0) return null;
   return (
@@ -2585,36 +2671,16 @@ function SeccionDashboard({
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
   const kmRestantes = proximo ? proximo.km - odometroActual : 0;
 
-  // ── Health score ─────────────────────────────────────────────────────
-  const lastCompletado = [...mantenimientoList]
-    .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
-    .find((e) => e.estado === "completado");
-  const mesesRestantes: number | undefined = (() => {
-    if (!proximo || !lastCompletado?.fecha) return undefined;
-    const anterior = BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null;
-    const intervaloMeses = anterior ? proximo.meses - anterior.meses : proximo.meses;
-    const last = new Date(lastCompletado.fecha);
-    const now = new Date();
-    const monthsElapsed =
-      (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth());
-    return intervaloMeses - monthsElapsed;
-  })();
-  const status = getMantenimientoStatus(kmRestantes, mesesRestantes);
-  const kmExcedido = !proximo || odometroActual >= proximo.km;
-  const tiempoExcedido = mesesRestantes !== undefined && mesesRestantes <= 0;
-  const servicioVencido = kmExcedido || tiempoExcedido;
-  const estadoServicio = servicioVencido ? "Vencido" : "Al día";
-  const kmRestantesLabel = kmRestantes > 0
-    ? `${kmRestantes.toLocaleString()} km`
-    : kmExcedido ? "0 km" : "—";
+  // ── Health score (km-based status for dashboard) ───────────────────────
+  const estadoServicio = getDashboardEstadoMantenimiento(odometroActual, proximo, kmRestantes);
+  const kmRestantesLabel = proximo
+    ? kmRestantes > 0 ? `${kmRestantes.toLocaleString()} km` : "0 km"
+    : "—";
+  const status = getMantenimientoStatus(kmRestantes, undefined);
   let healthScore = 100;
   if (kmRestantes <= 0)               healthScore -= 35;
   else if (kmRestantes <= 500)        healthScore -= 20;
   else if (kmRestantes <= 2000)       healthScore -= 10;
-  if (mesesRestantes !== undefined) {
-    if (mesesRestantes <= 0)          healthScore -= 20;
-    else if (mesesRestantes <= 2)     healthScore -= 5;
-  }
   if (mantenimientoList.length === 0) healthScore -= 15;
   healthScore = Math.max(0, Math.min(100, healthScore));
   const healthLabel =
@@ -2649,20 +2715,8 @@ function SeccionDashboard({
     if (!valid.length) return 0;
     return Math.round((valid.reduce((s, p) => s + Number(p.costo_kwh_mxn), 0) / valid.length) * 100) / 100;
   })();
-  const gastoCasaMensual = (() => {
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-    let total = 0;
-    for (const p of periodosElectricos) {
-      const fin = new Date(p.fecha_fin);
-      if (fin.getFullYear() !== thisYear || fin.getMonth() !== thisMonth) continue;
-      const kwhCasa = Math.max(0, Number(p.kwh_bimestre || 0) - Number(p.kwh_byd_periodo || 0));
-      const rate = p.costo_kwh_mxn ? Number(p.costo_kwh_mxn) : 0;
-      if (kwhCasa > 0 && rate > 0) total += kwhCasa * rate;
-    }
-    return Math.round(total * 100) / 100;
-  })();
+  const gastoBydMensual = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "byd");
+  const gastoCasaMensual = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "casa");
 
   // ── Spend proportions (for stacked bar) ──────────────────────────────
   const segments = [
@@ -2682,11 +2736,13 @@ function SeccionDashboard({
         {/* ── LEFT: Charts ── */}
         <div className="space-y-3">
           <GastoEvolucionLine
+            gasolinaList={gasolinaList}
             periodosElectricos={periodosElectricos}
             mantenimientoList={mantenimientoList}
             otrosCostosList={otrosCostosList}
           />
           <GastoComparativoStacked
+            gasolinaList={gasolinaList}
             periodosElectricos={periodosElectricos}
             mantenimientoList={mantenimientoList}
             otrosCostosList={otrosCostosList}
@@ -2716,7 +2772,7 @@ function SeccionDashboard({
               </div>
             </div>
           </div>
-          <ActividadReciente onNavigate={onNavigate} />
+          <ActividadReciente gasolinaList={gasolinaList} onNavigate={onNavigate} />
         </div>
 
         {/* ── RIGHT: Module summary cards ── */}
@@ -2744,9 +2800,19 @@ function SeccionDashboard({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[11px] font-semibold" style={{ color: healthColor }}>{healthLabel}</span>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-medium ${servicioVencido ? "text-red-400 border-red-500/30" : status.color + " " + status.borderColor}`}>{estadoServicio}</span>
+                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-medium ${
+                  estadoServicio === "Vencido" ? "text-red-400 border-red-500/30"
+                  : estadoServicio === "Urgente" ? "text-red-400 border-red-500/30"
+                  : estadoServicio === "Próximo" ? "text-amber-400 border-amber-500/25"
+                  : "text-green-400 border-green-500/20"
+                }`}>{estadoServicio}</span>
               </div>
-              <p className="mt-0.5 text-[9px] text-white/30 truncate">{servicioVencido ? "Servicio vencido — agenda lo antes posible" : "Todo bien — sin acciones requeridas"}</p>
+              <p className="mt-0.5 text-[9px] text-white/30 truncate">
+                {estadoServicio === "Vencido" ? "Servicio vencido — agenda lo antes posible"
+                  : estadoServicio === "Urgente" ? "Agenda tu servicio pronto"
+                  : estadoServicio === "Próximo" ? "Servicio próximo — planifica tu cita"
+                  : "Todo bien — sin acciones requeridas"}
+              </p>
             </div>
             <span className="shrink-0 text-white/20 text-xs">→</span>
           </button>
@@ -2779,8 +2845,8 @@ function SeccionDashboard({
               <div><p className="text-white/25 leading-tight">Consumo BYD (kWh)</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
               <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{avgKwhRate > 0 ? `$${avgKwhRate.toFixed(2)}/kWh` : "—"}</p></div>
-              <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.mensual)}</p></div>
-              <div><p className="text-white/25 leading-tight">Gasto mensual de tu vivienda</p><p className="font-semibold text-white/70">{gastoCasaMensual > 0 ? formatCurrency(gastoCasaMensual) : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{gastoBydMensual != null ? formatCurrency(gastoBydMensual) : "Sin dato"}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto mensual de tu vivienda</p><p className="font-semibold text-white/70">{gastoCasaMensual != null ? formatCurrency(gastoCasaMensual) : "Sin dato"}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.anual)}</p></div>
             </div>
           </button>
@@ -2796,9 +2862,17 @@ function SeccionDashboard({
               <div><p className="text-white/25 leading-tight">Servicios oficiales</p><p className="font-semibold text-white/70">{formatCurrency(totalOficial)}</p></div>
               <div><p className="text-white/25 leading-tight">Otros costos</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
               <div><p className="text-white/25 leading-tight">Servicios realizados</p><p className="font-semibold text-white/70">{mantenimientoList.length}</p></div>
-              <div><p className="text-white/25 leading-tight">Próximo servicio</p><p className={`font-semibold truncate ${servicioVencido ? "text-red-400" : status.color}`}>{proximo ? `${proximo.km.toLocaleString()} km` : "Completado"}</p></div>
-              <div><p className="text-white/25 leading-tight">Estado</p><p className={`font-semibold ${servicioVencido ? "text-red-400" : estadoServicio === "Al día" ? "text-green-400" : status.color}`}>{estadoServicio}</p></div>
-              <div><p className="text-white/25 leading-tight">Km restantes</p><p className={`font-semibold ${servicioVencido ? "text-red-400" : status.color}`}>{kmRestantesLabel}</p></div>
+              <div><p className="text-white/25 leading-tight">Próximo servicio</p><p className={`font-semibold truncate ${estadoServicio === "Vencido" || estadoServicio === "Urgente" ? "text-red-400" : estadoServicio === "Próximo" ? "text-amber-400" : "text-white/70"}`}>{proximo ? `${proximo.km.toLocaleString()} km` : "Completado"}</p></div>
+              <div><p className="text-white/25 leading-tight">Estado</p><p className={`font-semibold ${
+                estadoServicio === "Vencido" || estadoServicio === "Urgente" ? "text-red-400"
+                : estadoServicio === "Próximo" ? "text-amber-400"
+                : "text-green-400"
+              }`}>{estadoServicio}</p></div>
+              <div><p className="text-white/25 leading-tight">Km restantes</p><p className={`font-semibold ${
+                estadoServicio === "Vencido" || estadoServicio === "Urgente" ? "text-red-400"
+                : estadoServicio === "Próximo" ? "text-amber-400"
+                : "text-white/70"
+              }`}>{kmRestantesLabel}</p></div>
             </div>
           </button>
 
@@ -4774,24 +4848,12 @@ export default function Home() {
   // ── Global health/próximo computation (for top KPI chips) ─────────────
   const proximoServicioGlobal = BYD_KING_SERVICIOS.find((s) => s.km > kpis.odometroActual) ?? null;
   const kmRestantesGlobal = proximoServicioGlobal ? proximoServicioGlobal.km - kpis.odometroActual : 0;
-  const lastCompletadoGlobal = [...mantenimientoList]
-    .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
-    .find((e) => e.estado === "completado");
-  const mesesRestantesGlobal: number | undefined = (() => {
-    if (!lastCompletadoGlobal?.fecha) return undefined;
-    const d = new Date(lastCompletadoGlobal.fecha);
-    const now = new Date();
-    return 12 - ((now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth());
-  })();
-  const statusGlobal = getMantenimientoStatus(kmRestantesGlobal, mesesRestantesGlobal);
+  const estadoServicioGlobal = getDashboardEstadoMantenimiento(kpis.odometroActual, proximoServicioGlobal, kmRestantesGlobal);
+  const statusGlobal = getMantenimientoStatus(kmRestantesGlobal, undefined);
   let healthScoreGlobal = 100;
   if (kmRestantesGlobal <= 0)         healthScoreGlobal -= 35;
   else if (kmRestantesGlobal <= 500)  healthScoreGlobal -= 20;
   else if (kmRestantesGlobal <= 2000) healthScoreGlobal -= 10;
-  if (mesesRestantesGlobal !== undefined) {
-    if (mesesRestantesGlobal <= 0)    healthScoreGlobal -= 20;
-    else if (mesesRestantesGlobal <= 2) healthScoreGlobal -= 5;
-  }
   if (mantenimientoList.length === 0) healthScoreGlobal -= 15;
   healthScoreGlobal = Math.max(0, Math.min(100, healthScoreGlobal));
   const healthLabelGlobal =
@@ -4804,6 +4866,8 @@ export default function Home() {
     healthScoreGlobal >= 90 ? "#60efb0" :
     healthScoreGlobal >= 80 ? "#a3e635" :
     healthScoreGlobal >= 70 ? "#fbbf24" : "#f87171";
+
+  const gastoBydMensualGlobal = gastoMensualProrrateadoFromPeriodo(periodosElectricos, "byd");
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
@@ -5013,8 +5077,8 @@ export default function Home() {
           <KpiChip label="Costo por km" value={`$${kpis.costoPorKm}`} sub="Promedio global" />
           <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
           <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
-          <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : statusGlobal.label} color={statusGlobal.color} />
-          <KpiChip label="Costo eléctrico" value={formatCurrency(kpisElectricos.mensual)} sub="Gasto mensual BYD" color="text-green-400/80" />
+          <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
+          <KpiChip label="Costo eléctrico" value={gastoBydMensualGlobal != null ? formatCurrency(gastoBydMensualGlobal) : "Sin dato"} sub="Gasto mensual BYD" color="text-green-400/80" />
         </section>
 
         {/* Mobile-only nav tabs */}

@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.4.1";
+const APP_VERSION = "0.5.4.2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -689,21 +689,21 @@ function KpiCard({
 }) {
   const isZero = value === "$0.00" || value === "$0" || value === "0" || value === "$0.0";
   return (
-    <div className={`relative overflow-hidden rounded-2xl border ${isZero ? "border-white/[0.03]" : "border-white/5"} bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-4 backdrop-blur-xl transition-all duration-300 hover:border-byd-500/30 hover:shadow-[0_0_30px_-8px_rgba(18,184,160,0.25)] sm:p-5`}>
+    <div className={`relative overflow-hidden rounded-xl border ${isZero ? "border-white/[0.03]" : "border-white/5"} bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-3 backdrop-blur-xl transition-all duration-300 hover:border-byd-500/30 hover:shadow-[0_0_20px_-8px_rgba(18,184,160,0.25)] sm:p-4`}>
       <div className="flex items-start justify-between">
-        <p className={`text-[11px] font-medium uppercase tracking-widest sm:text-xs ${isZero ? "text-white/25" : "text-white/40"}`}>
+        <p className={`text-[10px] font-medium uppercase tracking-widest sm:text-[11px] ${isZero ? "text-white/25" : "text-white/40"}`}>
           {label}
         </p>
         {icon && (
-          <span className={`flex items-center justify-center rounded-lg p-1.5 ${isZero ? "bg-white/[0.03] text-white/20" : "bg-byd-500/10 text-byd-400"}`}>
+          <span className={`flex items-center justify-center rounded-md p-1 ${isZero ? "bg-white/[0.03] text-white/20" : "bg-byd-500/10 text-byd-400"}`}>
             {icon}
           </span>
         )}
       </div>
-      <p className={`mt-1 text-lg font-semibold tracking-tight sm:text-2xl ${isZero ? "text-white/20" : color}`}>
+      <p className={`mt-0.5 text-base font-semibold tracking-tight sm:text-xl ${isZero ? "text-white/20" : color}`}>
         {value}
       </p>
-      {sub && <p className={`mt-0.5 text-[11px] sm:text-xs ${isZero ? "text-white/15" : "text-white/30"}`}>{sub}</p>}
+      {sub && <p className={`mt-0.5 text-[10px] sm:text-[11px] ${isZero ? "text-white/15" : "text-white/30"}`}>{sub}</p>}
     </div>
   );
 }
@@ -720,7 +720,7 @@ function NavTab({
   return (
     <button
       onClick={onClick}
-      className={`relative whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 sm:px-5 ${
+      className={`relative whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm ${
         active
           ? "bg-byd-500/15 text-byd-400 shadow-[inset_0_0_0_1px_rgba(18,184,160,0.25)]"
           : "text-white/40 hover:bg-white/[0.04] hover:text-white/70"
@@ -793,9 +793,9 @@ function Modal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative my-4 w-full rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl ${wide ? "max-w-[880px]" : "max-w-md"}`}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-white">{title}</h3>
+      <div className={`relative my-4 w-full rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl sm:p-5 ${wide ? "max-w-[880px]" : "max-w-md"}`}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
           <button
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
@@ -1297,20 +1297,20 @@ function SectionHeader({
   onAdd: () => void;
 }) {
   return (
-    <div className="mb-4 flex items-center justify-between">
+    <div className="mb-3 flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold sm:text-base">{title}</h2>
-        <span className="text-[11px] text-white/30 sm:text-xs">{count} registros</span>
+        <h2 className="text-sm font-semibold">{title}</h2>
+        <span className="text-[10px] text-white/30">{count} registros</span>
       </div>
       <button
         onClick={onAdd}
-        className="flex items-center gap-1 rounded-xl bg-byd-500/15 px-3 py-1.5 text-xs font-medium text-byd-400 transition-colors hover:bg-byd-500/25 sm:text-sm"
+        className="flex items-center gap-1 rounded-lg bg-byd-500/15 px-2.5 py-1 text-xs font-medium text-byd-400 transition-colors hover:bg-byd-500/25"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
-        Agregar +
+        Agregar
       </button>
     </div>
   );
@@ -1329,7 +1329,7 @@ function HistoryFilterButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all sm:text-sm ${
+      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
         active
           ? "bg-byd-500/15 text-byd-400 shadow-[inset_0_0_0_1px_rgba(18,184,160,0.25)]"
           : "text-white/40 hover:bg-white/[0.04] hover:text-white/70"
@@ -1421,8 +1421,8 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold sm:text-base">Historial completo</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Historial completo</h2>
         <div className="flex gap-1.5">
           <HistoryFilterButton active={filter === "hoy"} label="Hoy" onClick={() => setFilter("hoy")} />
           <HistoryFilterButton active={filter === "semana"} label="Semana" onClick={() => setFilter("semana")} />
@@ -1484,9 +1484,9 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
       )}
 
       {filtered.length > 0 && (
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3">
-          <span className="text-sm font-medium text-white/50">{filtered.length} movimientos</span>
-          <span className="text-base font-bold text-white">{formatCurrency(totalImporte)}</span>
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2">
+          <span className="text-xs text-white/40">{filtered.length} movimientos</span>
+          <span className="text-sm font-bold text-white">{formatCurrency(totalImporte)}</span>
         </div>
       )}
     </div>
@@ -1511,7 +1511,7 @@ function TicketDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0d1117] p-5 shadow-2xl sm:p-6">
+      <div className="relative w-full max-w-lg rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl sm:p-5">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-white">{ticket.titulo}</h3>
           <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80">
@@ -1661,8 +1661,8 @@ function TicketsView({ onOpenForm }: { onOpenForm: () => void }) {
 // ── Chart components ─────────────────────────────────────────────────────────
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-      <h3 className="mb-4 text-sm font-semibold text-white/80 sm:text-base">{title}</h3>
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">{title}</h3>
       {children}
     </div>
   );
@@ -1691,7 +1691,7 @@ function GastoPorDia() {
 
   return (
     <ChartCard title="Gasto por día (últimos 7 días)">
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={180}>
         <AreaChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
           <defs>
             <linearGradient id="gastoDia" x1="0" y1="0" x2="0" y2="1">
@@ -1738,7 +1738,7 @@ function GastoPorMes() {
 
   return (
     <ChartCard title="Gasto por mes">
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={180}>
         <BarChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -1773,7 +1773,7 @@ function RendimientoHistorico() {
 
   return (
     <ChartCard title="Rendimiento histórico">
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={180}>
         <LineChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="n" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -1823,7 +1823,7 @@ function ComparativoGasolinaVsElectricidad() {
 
   return (
     <ChartCard title="Comparativo gasolina vs electricidad">
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={180}>
         <BarChart data={data} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="mes" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -1871,7 +1871,7 @@ function ConfirmDialog({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
+      <div className="relative w-full max-w-sm rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl">
         <h3 className="mb-2 text-base font-semibold text-white">{title}</h3>
         <p className="mb-5 text-sm text-white/60">{message}</p>
         <div className="flex gap-2">
@@ -3075,17 +3075,17 @@ function SeccionMantenimiento({
         const C = 2 * Math.PI * R;
         const offset = C - (healthScore / 100) * C;
         return (
-          <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-base">🩺</span>
-              <h3 className="text-sm font-semibold text-white/80">Estado del vehículo</h3>
+          <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3 sm:p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-sm">🩺</span>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">Estado del vehículo</h3>
             </div>
 
             {/* Score + cards row */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
               {/* Circular score */}
-              <div className="flex shrink-0 flex-col items-center justify-center gap-2">
-                <svg width="128" height="128" viewBox="0 0 128 128">
+              <div className="flex shrink-0 flex-col items-center justify-center gap-1.5">
+                <svg width="100" height="100" viewBox="0 0 128 128">
                   <circle cx="64" cy="64" r={R} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
                   <circle
                     cx="64" cy="64" r={R}
@@ -3146,8 +3146,8 @@ function SeccionMantenimiento({
             </div>
 
             {/* Timeline */}
-            <div className="mt-5">
-              <p className="mb-3 text-[11px] font-medium text-white/40">Línea de tiempo BYD King</p>
+            <div className="mt-3">
+              <p className="mb-2 text-[10px] font-medium text-white/35">Línea de tiempo BYD King</p>
               <div className="space-y-0">
                 {BYD_KING_SERVICIOS.map((s, idx) => {
                   const realizado = mantenimientoList.find(
@@ -3278,10 +3278,10 @@ function SeccionMantenimiento({
       )}
 
       {/* ── Gráficas: 2-col desktop ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Left — Evolución servicios oficiales */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-          <h3 className="mb-3 text-xs font-semibold text-white/70">📊 Servicios oficiales</h3>
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/50">📊 Servicios oficiales</h3>
           {chartData.length === 0 ? (
             <p className="py-8 text-center text-xs text-white/30">Aún no hay mantenimientos registrados.</p>
           ) : (
@@ -3337,7 +3337,7 @@ function SeccionMantenimiento({
 
       {/* ── Próximo servicio ── */}
       {proximo ? (
-        <div className={`rounded-xl border p-4 sm:p-5 ${status.bg} ${status.borderColor}`}>
+        <div className={`rounded-xl border p-3 sm:p-4 ${status.bg} ${status.borderColor}`}>
           {/* Header */}
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white/80">🔧 Próximo mantenimiento</h3>
@@ -3430,10 +3430,10 @@ function SeccionMantenimiento({
       )}
 
       {/* ── Historial de mantenimientos ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/80">📋 Historial de mantenimientos</h3>
-          <span className="text-[11px] text-white/30">{mantenimientoList.length} registros</span>
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">📋 Historial de mantenimientos</h3>
+          <span className="text-[10px] text-white/30">{mantenimientoList.length} registros</span>
         </div>
         {mantenimientoList.length > 0 ? (
           <div className="space-y-2">
@@ -3594,11 +3594,11 @@ function SeccionMantenimiento({
       </div>
 
       {/* ── Otros costos y refacciones ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/80">🔩 Otros costos y refacciones</h3>
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">🔩 Otros costos y refacciones</h3>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-white/30">{otrosCostosList.length} registros</span>
+            <span className="text-[10px] text-white/30">{otrosCostosList.length} registros</span>
             <button
               type="button"
               onClick={onNewOtroCosto}
@@ -3650,8 +3650,8 @@ function SeccionMantenimiento({
       </div>
 
       {/* ── Calendario oficial BYD King ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-semibold text-white/80">📅 Calendario oficial BYD King</h3>
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">📅 Calendario oficial BYD King</h3>
         <div className="space-y-1.5">
           {BYD_KING_SERVICIOS.map((s) => {
             const done = odometroActual >= s.km;
@@ -3745,7 +3745,7 @@ function GraficoHistorico({
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+    <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white/80">📈 Evolución histórica</h3>
         <div className="flex gap-1.5">
@@ -3896,12 +3896,12 @@ function SeccionEnergia({
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white/80 sm:text-base">⚡ Centro de Energía</h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-white/80">⚡ Centro de Energía</h2>
         <button
           type="button"
           onClick={onNewRecibo}
-          className="rounded-xl bg-byd-500 px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-byd-400 sm:text-sm"
+          className="rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400"
         >
           + Nuevo recibo
         </button>
@@ -3965,13 +3965,13 @@ function SeccionEnergia({
       </Modal>
 
       {/* ── Fila 1: Recibo vigente + Casa vs BYD ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 
         {/* Card A: Recibo CFE vigente */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
         {ultimoRecibo ? (
           <>
-            <h3 className="mb-3 text-sm font-medium text-white/80">📄 Recibo CFE vigente</h3>
+            <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">📄 Recibo CFE vigente</h3>
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-white/40">Periodo</span>
@@ -4077,18 +4077,18 @@ function SeccionEnergia({
       </div>
 
       {/* Card B: Consumo Casa vs BYD */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
         {ultimoRecibo ? (
           <>
-            <h3 className="mb-3 text-sm font-medium text-white/80">Consumo Casa vs BYD</h3>
+            <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">Consumo Casa vs BYD</h3>
             <div className="space-y-2">
               {kwhBimestre > 0 && (
-                <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                <div className="mb-2 flex h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
                   <div className="bg-byd-400 transition-all duration-500" style={{ width: `${pctByd}%` }} />
                   <div className="bg-amber-500/40 transition-all duration-500" style={{ width: `${pctCasa}%` }} />
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-lg bg-byd-500/10 p-3">
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-byd-400" />
@@ -4118,11 +4118,11 @@ function SeccionEnergia({
       </div>{/* ── /Fila 1 ── */}
 
       {/* ── Fila 2: Costos eléctricos + Resumen del periodo ── */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
 
         {/* Card C: Costos eléctricos */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-medium text-white/80">Costos eléctricos</h3>
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">Costos eléctricos</h3>
         {ultimoRecibo ? (
           <div className="space-y-3 text-sm">
             <div className="rounded-lg bg-byd-500/10 px-3 py-2.5">
@@ -4176,10 +4176,10 @@ function SeccionEnergia({
         </div>
 
         {/* Card E: Resumen del periodo */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-          <h3 className="mb-3 text-sm font-medium text-white/80">📊 Resumen del periodo</h3>
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+          <h3 className="mb-2 text-xs font-medium text-white/60 uppercase tracking-wide">📊 Resumen del periodo</h3>
           {ultimoRecibo ? (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <div>
                 <p className="text-[11px] text-white/35">Consumo total</p>
                 <p className="font-semibold text-white/80">{kwhBimestre} kWh</p>
@@ -4217,8 +4217,8 @@ function SeccionEnergia({
       )}
 
       {/* ── Historial de recibos (ancho completo, filas compactas) ── */}
-      <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-medium text-white/80">Historial de recibos</h3>
+      <div className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 sm:p-4">
+        <h3 className="mb-2 text-xs font-medium text-white/50 uppercase tracking-wide">Historial de recibos</h3>
         {periodos.length > 0 ? (
           recibosAnteriores.length > 0 ? (
             <div className="space-y-1.5">
@@ -4597,9 +4597,9 @@ export default function Home() {
         <div className="absolute bottom-[-20%] left-[-10%] h-[400px] w-[400px] rounded-full bg-byd-500/[0.03] blur-[100px]" />
       </div>
 
-      <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-4 sm:px-6 sm:pt-6 lg:px-8">
+      <div className="relative mx-auto max-w-6xl px-3 pb-8 pt-3 sm:px-5 sm:pt-5 lg:px-6">
         {/* ═══ HEADER ═══ */}
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-8">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-5">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-byd-500 text-black sm:h-10 sm:w-10">
               <svg
@@ -4644,7 +4644,7 @@ export default function Home() {
         </header>
 
         {/* ═══ KPI ROW 1 ═══ */}
-        <section className="mb-4 grid grid-cols-2 gap-3 sm:mb-6 sm:grid-cols-5">
+        <section className="mb-2 grid grid-cols-2 gap-2 sm:mb-3 sm:grid-cols-5">
           <KpiCard label="Gasto hoy" value={formatCurrency(kpis.gastoHoy)} icon={<IconDollar />} />
           <KpiCard label="Gasto semanal" value={formatCurrency(kpis.gastoSemanal)} icon={<IconCalendar />} />
           <KpiCard label="Gasto mensual" value={formatCurrency(kpis.gastoMensual)} icon={<IconCalendar />} />
@@ -4653,7 +4653,7 @@ export default function Home() {
         </section>
 
         {/* ═══ KPI ROW 2 ═══ */}
-        <section className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <section className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <KpiCard
             label="Costo por km"
             value={`$${kpis.costoPorKm}`}
@@ -4673,7 +4673,7 @@ export default function Home() {
 
         {/* ═══ KPI ROW 3: Eléctrico ═══ */}
         {periodosElectricos.length > 0 && (
-          <section className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-3">
+          <section className="mb-2 grid grid-cols-2 gap-2 sm:mb-3 sm:grid-cols-3">
             <KpiCard
               label="Gasto eléctrico mensual"
               value={formatCurrency(kpisElectricos.mensual)}
@@ -4699,7 +4699,7 @@ export default function Home() {
         )}
 
         {/* ═══ NAV TABS ═══ */}
-        <nav className="mb-5 flex gap-1 overflow-x-auto rounded-2xl border border-white/5 bg-white/[0.03] p-1 sm:mb-6">
+        <nav className="mb-3 flex gap-0.5 overflow-x-auto rounded-xl border border-white/5 bg-white/[0.03] p-0.5 sm:mb-4">
           <NavTab active={section === "dashboard"} label="🏠 Dashboard" onClick={() => setSection("dashboard")} />
           <NavTab active={section === "gasolina"} label="⛽ Gasolina" onClick={() => setSection("gasolina")} />
           <NavTab active={section === "cargas"} label="⚡ Cargas EV" onClick={() => setSection("cargas")} />
@@ -4711,7 +4711,7 @@ export default function Home() {
         </nav>
 
         {/* ═══ SECTION CONTENT ═══ */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 backdrop-blur-xl sm:p-6">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 backdrop-blur-xl sm:p-5">
           {/* ── Dashboard ── */}
           {section === "dashboard" && (
             <SeccionDashboard
@@ -4857,8 +4857,8 @@ export default function Home() {
 
           {/* ── Reportes ── */}
           {section === "reportes" && (
-            <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <GastoPorDia />
                 <GastoPorMes />
               </div>
@@ -4884,7 +4884,7 @@ export default function Home() {
         </div>
 
         {/* ═══ FOOTER ═══ */}
-        <footer className="mt-8 text-center text-[11px] text-white/15 sm:text-xs">
+        <footer className="mt-4 text-center text-[10px] text-white/15">
           BYD Wallet
         </footer>
       </div>

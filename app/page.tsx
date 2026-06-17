@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow, type MaintenanceExtraCostRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -100,17 +100,20 @@ type Section = "dashboard" | "gasolina" | "cargas" | "mantenimiento" | "historia
 
 type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | "recibo" | null;
 
-type HistoryFilter = "hoy" | "semana" | "mes" | "ano";
+type HistoryPeriodFilter = "hoy" | "semana" | "mes" | "ano";
+type HistoryCategoryFilter = "todos" | "gasolina" | "electricidad" | "mantenimiento" | "otros" | "cfe";
 
 interface HistoryRow {
   id: string;
   fecha: string;
   fecha_hora?: string | null;
-  tipo: "Gasolina" | "Carga EV" | "Mantenimiento";
+  tipo: string;
+  descripcion: string;
   importe: number;
   observaciones: string;
-  source: "gasolina" | "cargas" | "mantenimiento";
-  odometro_km: number;
+  category: HistoryCategoryFilter;
+  sortKey: number;
+  onViewDetail: () => void;
 }
 
 interface TicketEntry {
@@ -1368,95 +1371,170 @@ function HistoryFilterButton({
   );
 }
 
-function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
-  const [filter, setFilter] = useState<HistoryFilter>("mes");
-
-  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
-  const cargas = loadData<CargaEntry[]>(KEYS.cargas, []);
-  const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+function HistoryTable({
+  gasolinaList,
+  cargasList,
+  periodosElectricos,
+  mantenimientoList,
+  otrosCostosList,
+  onViewGasolina,
+  onViewCfe,
+  onNavigate,
+}: {
+  gasolinaList: GasolinaEntry[];
+  cargasList: CargaEntry[];
+  periodosElectricos: PeriodoElectricoRow[];
+  mantenimientoList: MantenimientoEntry[];
+  otrosCostosList: OtroCostoEntry[];
+  onViewGasolina: (entry: GasolinaEntry) => void;
+  onViewCfe: (periodo: PeriodoElectricoRow) => void;
+  onNavigate: (section: Section) => void;
+}) {
+  const [periodFilter, setPeriodFilter] = useState<HistoryPeriodFilter>("mes");
+  const [categoryFilter, setCategoryFilter] = useState<HistoryCategoryFilter>("todos");
 
   const now = new Date();
 
-  const allRows: HistoryRow[] = [
-    // Supabase recargas → Gasolina entries
-    ...recargas.map((r) => ({
-      id: String(r.id),
-      fecha: r.fecha,
-      fecha_hora: r.fecha_hora,
-      tipo: "Gasolina" as const,
-      importe: Number(r.costo_total_mxn),
-      observaciones: `${r.gasolinera || "Recarga"} · ${Number(r.litros)} L · ${Number(r.odometro_km).toLocaleString()} km`,
-      source: "gasolina" as const,
-      odometro_km: Number(r.odometro_km),
-    })),
-    // localStorage entries
-    ...gasolina.map((e) => ({
-      id: e.id,
-      fecha: e.fecha,
-      tipo: "Gasolina" as const,
-      importe: e.costo,
-      observaciones: `${e.concepto} · ${e.litros} L · ${e.kilometraje.toLocaleString()} km`,
-      source: "gasolina" as const,
-      odometro_km: e.kilometraje,
-    })),
-    ...cargas.map((e) => ({
-      id: e.id,
-      fecha: e.fecha,
-      tipo: "Carga EV" as const,
-      importe: e.costo,
-      observaciones: `${e.tipo} · ${e.kwhCargados} kWh (${e.pctInicial}% → ${e.pctFinal}%)`,
-      source: "cargas" as const,
-      odometro_km: e.kmEvObtenidos,
-    })),
-    ...mantenimiento.map((e) => ({
-      id: e.id,
-      fecha: e.fecha,
-      tipo: "Mantenimiento" as const,
-      importe: e.costo,
-      observaciones: `${e.servicio} · ${e.km.toLocaleString()} km`,
-      source: "mantenimiento" as const,
-      odometro_km: e.km,
-    })),
-  ];
+  const allRows = useMemo((): HistoryRow[] => {
+    const rows: HistoryRow[] = [];
 
-  // Sort by odometro_km descending (highest first)
-  const sortedRows = [...allRows].sort((a, b) => b.odometro_km - a.odometro_km);
+    gasolinaList.forEach((e) => {
+      rows.push({
+        id: `gas-${e.id}`,
+        fecha: e.fecha,
+        tipo: "Gasolina",
+        descripcion: e.concepto || "Recarga de gasolina",
+        importe: e.costo,
+        observaciones: `${e.litros} L · ${e.kilometraje.toLocaleString()} km`,
+        category: "gasolina",
+        sortKey: dateSortValue(e.fecha),
+        onViewDetail: () => onViewGasolina(e),
+      });
+    });
 
-  const filtered = sortedRows.filter((row) => {
-    const dateStr = row.fecha || row.fecha_hora || "";
-    const d = normalizeDate(dateStr);
+    cargasList.forEach((e) => {
+      rows.push({
+        id: `ev-${e.id}`,
+        fecha: e.fecha,
+        tipo: "Carga EV",
+        descripcion: `Carga ${e.tipo}`,
+        importe: e.costo,
+        observaciones: `${e.kwhCargados.toFixed(1)} kWh · ${e.pctInicial}% → ${e.pctFinal}%`,
+        category: "electricidad",
+        sortKey: dateSortValue(e.fecha),
+        onViewDetail: () => onNavigate("cargas"),
+      });
+    });
+
+    periodosElectricos.forEach((p) => {
+      const inicio = formatDateOnlyMX(p.fecha_inicio) ?? p.fecha_inicio;
+      const fin = formatDateOnlyMX(p.fecha_fin) ?? p.fecha_fin;
+      rows.push({
+        id: `cfe-${p.id}`,
+        fecha: p.fecha_fin,
+        tipo: "Recibo CFE",
+        descripcion: `Recibo CFE · ${inicio} — ${fin}`,
+        importe: Number(p.costo_total_mxn),
+        observaciones: `${p.kwh_bimestre} kWh · ${p.proveedor || "CFE"}${p.numero_recibo ? ` · #${p.numero_recibo}` : ""}`,
+        category: "cfe",
+        sortKey: dateSortValue(p.fecha_fin),
+        onViewDetail: () => onViewCfe(p),
+      });
+    });
+
+    mantenimientoList.forEach((e) => {
+      if (!e.fecha) return;
+      rows.push({
+        id: `mnt-${e.id}`,
+        fecha: e.fecha,
+        tipo: "Mantenimiento",
+        descripcion: e.servicio || "Servicio oficial",
+        importe: e.costoReal ?? e.costo,
+        observaciones: `${e.km.toLocaleString()} km${e.agencia ? ` · ${e.agencia}` : ""}${e.notas ? ` · ${e.notas}` : ""}`,
+        category: "mantenimiento",
+        sortKey: dateSortValue(e.fecha),
+        onViewDetail: () => onNavigate("mantenimiento"),
+      });
+    });
+
+    otrosCostosList.forEach((e) => {
+      if (!e.fecha) return;
+      rows.push({
+        id: `otr-${e.id}`,
+        fecha: e.fecha,
+        tipo: "Otros costos",
+        descripcion: e.concepto,
+        importe: e.costo,
+        observaciones: `${e.categoria}${e.odometro ? ` · ${e.odometro.toLocaleString()} km` : ""}${e.proveedor ? ` · ${e.proveedor}` : ""}`,
+        category: "otros",
+        sortKey: dateSortValue(e.fecha),
+        onViewDetail: () => onNavigate("mantenimiento"),
+      });
+    });
+
+    return rows.sort((a, b) => b.sortKey - a.sortKey);
+  }, [gasolinaList, cargasList, periodosElectricos, mantenimientoList, otrosCostosList, onViewGasolina, onViewCfe, onNavigate]);
+
+  const filtered = allRows.filter((row) => {
+    if (categoryFilter !== "todos" && row.category !== categoryFilter) return false;
+    const d = normalizeDate(row.fecha || row.fecha_hora || "");
     if (!d) return false;
-    switch (filter) {
+    switch (periodFilter) {
       case "hoy": return isSameDay(d, now);
       case "semana": return isThisWeek(d, now);
       case "mes": return isThisMonth(d, now);
       case "ano": return isThisYear(d, now);
     }
   });
+
   const totalImporte = filtered.reduce((acc, r) => acc + r.importe, 0);
 
   const tipoIcon: Record<string, string> = {
     Gasolina: "⛽",
     "Carga EV": "⚡",
+    "Recibo CFE": "📄",
     Mantenimiento: "🔧",
+    "Otros costos": "🔩",
   };
 
   const tipoColor: Record<string, string> = {
-    Gasolina: "text-byd-400",
-    "Carga EV": "text-byd-400",
-    Mantenimiento: "text-amber-400",
+    Gasolina: "text-amber-400/90",
+    "Carga EV": "text-green-400/90",
+    "Recibo CFE": "text-byd-400/90",
+    Mantenimiento: "text-blue-400/90",
+    "Otros costos": "text-purple-400/90",
   };
+
+  const categoryButtons: { key: HistoryCategoryFilter; label: string }[] = [
+    { key: "todos", label: "Todos" },
+    { key: "gasolina", label: "Gasolina" },
+    { key: "electricidad", label: "Electricidad" },
+    { key: "mantenimiento", label: "Mantenimiento" },
+    { key: "otros", label: "Otros costos" },
+    { key: "cfe", label: "Recibos CFE" },
+  ];
 
   return (
     <div>
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Historial completo</h2>
-        <div className="flex gap-1">
-          <HistoryFilterButton active={filter === "hoy"} label="Hoy" onClick={() => setFilter("hoy")} />
-          <HistoryFilterButton active={filter === "semana"} label="Semana" onClick={() => setFilter("semana")} />
-          <HistoryFilterButton active={filter === "mes"} label="Mes" onClick={() => setFilter("mes")} />
-          <HistoryFilterButton active={filter === "ano"} label="Año" onClick={() => setFilter("ano")} />
+        <div className="flex flex-wrap gap-1">
+          <HistoryFilterButton active={periodFilter === "hoy"} label="Hoy" onClick={() => setPeriodFilter("hoy")} />
+          <HistoryFilterButton active={periodFilter === "semana"} label="Semana" onClick={() => setPeriodFilter("semana")} />
+          <HistoryFilterButton active={periodFilter === "mes"} label="Mes" onClick={() => setPeriodFilter("mes")} />
+          <HistoryFilterButton active={periodFilter === "ano"} label="Año" onClick={() => setPeriodFilter("ano")} />
         </div>
+      </div>
+
+      <div className="mb-2.5 flex flex-wrap gap-1">
+        {categoryButtons.map(({ key, label }) => (
+          <HistoryFilterButton
+            key={key}
+            active={categoryFilter === key}
+            label={label}
+            onClick={() => setCategoryFilter(key)}
+          />
+        ))}
       </div>
 
       {/* Desktop table */}
@@ -1466,23 +1544,35 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
             <tr className="border-b border-white/5 bg-white/[0.03] text-[9px] font-medium uppercase tracking-wider text-white/30">
               <th className="px-3 py-2">Fecha</th>
               <th className="px-3 py-2">Tipo</th>
+              <th className="px-3 py-2">Descripción</th>
               <th className="px-3 py-2 text-right">Importe</th>
               <th className="px-3 py-2">Observaciones</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((row) => (
               <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
-                <td className="px-3 py-2 text-white/55">{formatFechaMX(row.fecha, row.fecha_hora)}</td>
-                <td className="px-3 py-2">
-                  <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo]}`}>
-                    {tipoIcon[row.tipo]} {row.tipo}
+                <td className="whitespace-nowrap px-3 py-2 text-white/55">{formatFechaMX(row.fecha, row.fecha_hora)}</td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo] ?? "text-white/60"}`}>
+                    {tipoIcon[row.tipo] ?? "•"} {row.tipo}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-right font-semibold text-white/85">
+                <td className="max-w-[160px] truncate px-3 py-2 text-white/70">{row.descripcion}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right font-semibold text-white/85">
                   {formatCurrency(row.importe)}
                 </td>
-                <td className="px-3 py-2 text-[11px] text-white/45">{row.observaciones}</td>
+                <td className="max-w-[200px] truncate px-3 py-2 text-[11px] text-white/45">{row.observaciones}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={row.onViewDetail}
+                    className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-white/45 transition-colors hover:bg-white/5 hover:text-white/70"
+                  >
+                    Ver detalle
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1493,14 +1583,24 @@ function HistoryTable({ recargas }: { recargas: RecargaRow[] }) {
       <div className="space-y-1.5 sm:hidden">
         {filtered.map((row) => (
           <div key={row.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
-            <div className="mb-0.5 flex items-center justify-between">
-              <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo]}`}>
-                {tipoIcon[row.tipo]} {row.tipo}
+            <div className="mb-0.5 flex items-center justify-between gap-2">
+              <span className={`flex items-center gap-1 text-xs font-medium ${tipoColor[row.tipo] ?? "text-white/60"}`}>
+                {tipoIcon[row.tipo] ?? "•"} {row.tipo}
               </span>
-              <span className="text-[10px] text-white/35">{formatFechaMX(row.fecha, row.fecha_hora)}</span>
+              <span className="shrink-0 text-[10px] text-white/35">{formatFechaMX(row.fecha, row.fecha_hora)}</span>
             </div>
-            <p className="mb-0.5 text-[11px] text-white/45">{row.observaciones}</p>
-            <p className="text-right text-xs font-semibold text-white/85">{formatCurrency(row.importe)}</p>
+            <p className="text-[11px] font-medium text-white/65">{row.descripcion}</p>
+            <p className="mb-1 text-[11px] text-white/45">{row.observaciones}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-white/85">{formatCurrency(row.importe)}</p>
+              <button
+                type="button"
+                onClick={row.onViewDetail}
+                className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-white/45 transition-colors hover:bg-white/5 hover:text-white/70"
+              >
+                Ver detalle
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -5378,7 +5478,18 @@ export default function Home() {
           )}
 
           {/* ── Historial ── */}
-          {section === "historial" && <HistoryTable recargas={recargas} />}
+          {section === "historial" && (
+            <HistoryTable
+              gasolinaList={gasolinaList}
+              cargasList={cargasList}
+              periodosElectricos={periodosElectricos}
+              mantenimientoList={mantenimientoList}
+              otrosCostosList={otrosCostosList}
+              onViewGasolina={(entry) => setGasolinaEnDetalle(entry)}
+              onViewCfe={(periodo) => setReciboEnDetalle(periodo)}
+              onNavigate={setSection}
+            />
+          )}
 
           {/* ── Tickets ── */}
           {section === "tickets" && <TicketsView onOpenForm={() => setFormModal("ticket")} />}

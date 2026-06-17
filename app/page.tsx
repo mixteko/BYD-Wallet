@@ -1065,12 +1065,12 @@ function DocumentEntryModal({
   if (!isOpen) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-2 sm:p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative flex w-[95vw] max-w-[700px] max-h-[85vh] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl"
+        className="relative flex min-h-0 w-[95vw] max-w-[700px] max-h-[85vh] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-3 py-2.5 sm:px-4">
@@ -2202,7 +2202,7 @@ function TicketsView() {
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          <p className="text-xs">No hay tickets aún</p>
+          <p className="text-xs">No hay documentos aún</p>
           <p className="text-[10px]">Sube la foto de tu primer comprobante</p>
         </div>
       ) : (

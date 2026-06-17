@@ -7,6 +7,9 @@ import {
 } from "recharts";
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
+// ── App version ──────────────────────────────────────────────────────────────
+const APP_VERSION = "0.5.1.1";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
   id: string;
@@ -2230,7 +2233,7 @@ export default function Home() {
 
         {/* ═══ FOOTER ═══ */}
         <footer className="mt-8 text-center text-[11px] text-white/15 sm:text-xs">
-          BYD Wallet · Monitor de gastos · v0.1 MVP
+          BYD Wallet · v{APP_VERSION}
         </footer>
       </div>
 

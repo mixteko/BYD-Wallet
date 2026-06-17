@@ -3,12 +3,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
-  LineChart, Line, CartesianGrid, Legend,
+  LineChart, Line, CartesianGrid, Legend, PieChart, Pie, Cell,
 } from "recharts";
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.4.2";
+const APP_VERSION = "0.6.0";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2344,6 +2344,210 @@ function RegistrarServicioForm({
   );
 }
 
+// ── KpiChip ───────────────────────────────────────────────────────────────
+function KpiChip({ label, value, sub, color, colorHex }: {
+  label: string; value: string; sub?: string; color?: string; colorHex?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-2">
+      <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wider text-white/30 leading-none">{label}</p>
+      <p className={`text-[11px] font-bold leading-none truncate ${color || "text-white/75"}`}
+         style={colorHex ? { color: colorHex } : {}}>
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-[9px] text-white/25 leading-none truncate">{sub}</p>}
+    </div>
+  );
+}
+
+// ── GastoEvolucionLine ────────────────────────────────────────────────────
+function GastoEvolucionLine({ periodosElectricos, mantenimientoList, otrosCostosList }: {
+  periodosElectricos: PeriodoElectricoRow[];
+  mantenimientoList: MantenimientoEntry[];
+  otrosCostosList: OtroCostoEntry[];
+}) {
+  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+  const cargas   = loadData<CargaEntry[]>(KEYS.cargas, []);
+
+  const data = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+      return {
+        key: d.toISOString().slice(0, 7),
+        label: d.toLocaleDateString("es-MX", { month: "short", year: "2-digit" }),
+        gasolina: 0, electricidad: 0, mantenimiento: 0, otros: 0,
+      };
+    });
+    const find = (k: string) => months.find((m) => m.key === k);
+    gasolina.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.gasolina += e.costo; });
+    cargas.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.electricidad += e.costo; });
+    periodosElectricos.forEach((p) => {
+      const m = find(p.fecha_inicio.slice(0, 7));
+      if (m) m.electricidad += Number(p.costo_total_mxn);
+    });
+    mantenimientoList.forEach((e) => {
+      if (!e.fecha) return;
+      const m = find(e.fecha.slice(0, 7));
+      if (m) m.mantenimiento += e.costoReal ?? e.costo;
+    });
+    otrosCostosList.forEach((e) => {
+      if (!e.fecha) return;
+      const m = find(e.fecha.slice(0, 7));
+      if (m) m.otros += e.costo;
+    });
+    return months;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodosElectricos, mantenimientoList, otrosCostosList]);
+
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Evolución de gastos (12 meses)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+          <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} width={28} />
+          <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }} formatter={(v: unknown) => [formatCurrency(Number(v))]} />
+          <Legend wrapperStyle={{ paddingTop: 4 }} formatter={(value) => <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9 }}>{value}</span>} />
+          <Line type="monotone" dataKey="gasolina"     stroke="#f59e0b" strokeWidth={1.5} dot={false} name="Gasolina" />
+          <Line type="monotone" dataKey="electricidad" stroke="#34d399" strokeWidth={1.5} dot={false} name="Electricidad" />
+          <Line type="monotone" dataKey="mantenimiento" stroke="#60a5fa" strokeWidth={1.5} dot={false} name="Mantenimiento" />
+          <Line type="monotone" dataKey="otros"        stroke="#c084fc" strokeWidth={1.5} dot={false} name="Otros" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── GastoComparativoStacked ───────────────────────────────────────────────
+function GastoComparativoStacked({ periodosElectricos, mantenimientoList, otrosCostosList }: {
+  periodosElectricos: PeriodoElectricoRow[];
+  mantenimientoList: MantenimientoEntry[];
+  otrosCostosList: OtroCostoEntry[];
+}) {
+  const gasolina = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+  const cargas   = loadData<CargaEntry[]>(KEYS.cargas, []);
+
+  const data = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+      return { key: d.toISOString().slice(0, 7), label: d.toLocaleDateString("es-MX", { month: "short", year: "2-digit" }), gasolina: 0, electricidad: 0, mantenimiento: 0, otros: 0 };
+    });
+    const find = (k: string) => months.find((m) => m.key === k);
+    gasolina.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.gasolina += e.costo; });
+    cargas.forEach((e) => { const m = find(e.fecha.slice(0, 7)); if (m) m.electricidad += e.costo; });
+    periodosElectricos.forEach((p) => { const m = find(p.fecha_inicio.slice(0, 7)); if (m) m.electricidad += Number(p.costo_total_mxn); });
+    mantenimientoList.forEach((e) => { if (!e.fecha) return; const m = find(e.fecha.slice(0, 7)); if (m) m.mantenimiento += e.costoReal ?? e.costo; });
+    otrosCostosList.forEach((e) => { if (!e.fecha) return; const m = find(e.fecha.slice(0, 7)); if (m) m.otros += e.costo; });
+    return months;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodosElectricos, mantenimientoList, otrosCostosList]);
+
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Comparativo por categoría</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} width={28} />
+          <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }} formatter={(v: unknown) => [formatCurrency(Number(v))]} />
+          <Bar dataKey="gasolina"     stackId="a" fill="#f59e0b" opacity={0.8} />
+          <Bar dataKey="electricidad" stackId="a" fill="#34d399" opacity={0.8} />
+          <Bar dataKey="mantenimiento" stackId="a" fill="#60a5fa" opacity={0.8} />
+          <Bar dataKey="otros"        stackId="a" fill="#c084fc" opacity={0.8} radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── GastoDistribucionPie ──────────────────────────────────────────────────
+function GastoDistribucionPie({ segments }: {
+  segments: { label: string; value: number; color: string }[];
+}) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (total === 0) return null;
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Distribución (este año)</p>
+      <div className="flex items-center gap-3">
+        <div className="relative shrink-0">
+          <PieChart width={96} height={96}>
+            <Pie data={segments} dataKey="value" cx="50%" cy="50%" innerRadius={28} outerRadius={44} strokeWidth={0}>
+              {segments.map((s, i) => <Cell key={i} fill={s.color} opacity={0.85} />)}
+            </Pie>
+          </PieChart>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <p className="text-[8px] text-white/30 leading-none">Total</p>
+            <p className="text-[10px] font-bold leading-tight text-byd-400">{formatCurrency(total)}</p>
+          </div>
+        </div>
+        <div className="flex-1 space-y-1">
+          {segments.map((s) => (
+            <div key={s.label} className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1">
+                <div className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                <span className="text-white/40">{s.label}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-white/55">{formatCurrency(s.value)}</span>
+                <span className="text-white/25">{Math.round((s.value / total) * 100)}%</span>
+              </div>
+            </div>
+          ))}
+          <p className="pt-1 text-[8px] text-white/15">* Pueden superar 100% ya que son categorías independientes.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ActividadReciente ─────────────────────────────────────────────────────
+function ActividadReciente({ onNavigate }: { onNavigate: (s: Section) => void }) {
+  const gasolina    = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
+  const cargas      = loadData<CargaEntry[]>(KEYS.cargas, []);
+  const mantenimiento = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+  const otros       = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, []);
+
+  const items = useMemo(() => {
+    const all = [
+      ...gasolina.map((e)  => ({ id: e.id, fecha: e.fecha, label: e.concepto || "Carga gasolina", monto: e.costo,             icon: "⛽", color: "#f59e0b", section: "gasolina"     as Section })),
+      ...cargas.map((e)    => ({ id: e.id, fecha: e.fecha, label: `Carga EV ${e.tipo}`,            monto: e.costo,             icon: "⚡", color: "#34d399", section: "cargas"       as Section })),
+      ...mantenimiento.map((e) => ({ id: e.id, fecha: e.fecha ?? "", label: e.servicio || "Mantenimiento", monto: e.costoReal ?? e.costo, icon: "🔧", color: "#60a5fa", section: "mantenimiento" as Section })),
+      ...otros.map((e)     => ({ id: e.id, fecha: e.fecha ?? "", label: e.concepto,                monto: e.costo,             icon: "🔩", color: "#c084fc", section: "mantenimiento" as Section })),
+    ];
+    return all.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).slice(0, 5);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Actividad reciente</p>
+        <button onClick={() => onNavigate("historial")} className="text-[9px] text-byd-400/60 hover:text-byd-400">Ver todo →</button>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+        {items.map((item) => (
+          <button key={item.id} type="button" onClick={() => onNavigate(item.section)}
+            className="flex flex-col gap-1 rounded-lg border border-white/5 bg-white/[0.02] p-2 text-left transition-colors hover:bg-white/[0.05]">
+            <div className="flex items-center justify-between">
+              <span className="text-sm leading-none">{item.icon}</span>
+              <div className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+            </div>
+            <p className="truncate text-[10px] font-medium text-white/70 leading-tight">{item.label}</p>
+            <p className="text-[9px] text-white/25">{formatDateShort(item.fecha)}</p>
+            <p className="text-[10px] font-semibold text-white/60">{formatCurrency(item.monto)}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── SeccionDashboard ──────────────────────────────────────────────────────
 function SeccionDashboard({
   odometroActual,
@@ -2445,163 +2649,151 @@ function SeccionDashboard({
     { label: "Otros costos",    value: totalOtros,     color: "#c084fc" },
   ].filter((s) => s.value > 0);
 
-  // KPI chip helper
-  const chips = [
-    { label: "Gasto total",     value: formatCurrency(totalIntegrado),            color: "text-byd-400",    nav: undefined as Section | undefined },
-    { label: "Costo / km",      value: `$${costoPorKmGlobal.toFixed(2)}`,         color: "text-white/75",   nav: undefined },
-    { label: "Odómetro",        value: `${odometroActual.toLocaleString()} km`,   color: "text-white/75",   nav: undefined },
-    { label: "🩺 Salud",        value: `${healthScore} — ${healthLabel}`,         color: "",                nav: "mantenimiento" as Section },
-    { label: "Próx. servicio",  value: proximo ? `${proximo.km.toLocaleString()} km` : "Al día", color: status.color, nav: "mantenimiento" as Section },
-    { label: "Elec. mensual",   value: formatCurrency(kpisElectricos.mensual),    color: "text-green-400/80", nav: "energia" as Section },
-  ];
+  // (chips moved to global KPI row in Home)
 
   return (
     <div className="space-y-3">
-      {/* ── Compact header ── */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold text-white/60 uppercase tracking-wider">🏠 Centro de Control · BYD King</h2>
-        <span className="text-[10px] text-white/25">{odometroActual.toLocaleString()} km</span>
-      </div>
+      {/* ── 2-column layout: left = charts, right = module cards ── */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_268px]">
 
-      {/* ── 6 KPI chips ── */}
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-        {chips.map((c) => (
-          <button
-            key={c.label}
-            type="button"
-            onClick={c.nav ? () => onNavigate(c.nav!) : undefined}
-            className={`rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-2 text-left transition-colors ${c.nav ? "cursor-pointer hover:bg-white/[0.05]" : "cursor-default"}`}
-          >
-            <p className="text-[9px] text-white/30 leading-none mb-1">{c.label}</p>
-            <p className={`text-[11px] font-bold leading-none truncate ${c.color || ""}`}
-               style={c.label === "🩺 Salud" ? { color: healthColor } : {}}>
-              {c.value}
-            </p>
-          </button>
-        ))}
-      </div>
-
-      {/* ── 2-column main body ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr]">
-
-        {/* ───── LEFT column (2fr) ───── */}
+        {/* ── LEFT: Charts ── */}
         <div className="space-y-3">
+          <GastoEvolucionLine
+            periodosElectricos={periodosElectricos}
+            mantenimientoList={mantenimientoList}
+            otrosCostosList={otrosCostosList}
+          />
+          <GastoComparativoStacked
+            periodosElectricos={periodosElectricos}
+            mantenimientoList={mantenimientoList}
+            otrosCostosList={otrosCostosList}
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <GastoDistribucionPie segments={segments} />
+            {/* Resumen rápido */}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Resumen rápido</p>
+              <div className="space-y-1.5 text-[10px]">
+                {[
+                  { icon: "⛽", label: "Costo/km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
+                  { icon: "⚡", label: "Costo/km (eléctrico)", val: avgKwhRate > 0 ? `$${(avgKwhRate * 0.174).toFixed(2)}` : "—" },
+                  { icon: "📊", label: "Costo/km (total)",    val: `$${costoPorKmGlobal.toFixed(2)}` },
+                  { icon: "📅", label: "Gasto diario prom.",  val: formatCurrency(Math.round(totalIntegrado / 365)) },
+                  { icon: "📅", label: "Gasto mensual prom.", val: formatCurrency(Math.round(totalIntegrado / 12)) },
+                  { icon: "📋", label: "Última recarga",      val: ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—" },
+                ].map((x) => (
+                  <div key={x.label} className="flex items-center justify-between gap-1">
+                    <span className="flex items-center gap-1 text-white/35 min-w-0">
+                      <span className="shrink-0">{x.icon}</span>
+                      <span className="truncate">{x.label}</span>
+                    </span>
+                    <span className="ml-1 shrink-0 font-medium text-white/60">{x.val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <ActividadReciente onNavigate={onNavigate} />
+        </div>
 
-          {/* Health status — horizontal compact */}
-          <button
-            type="button"
-            onClick={() => onNavigate("mantenimiento")}
-            className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:opacity-90 ${status.borderColor} ${status.bg}`}
-          >
-            {/* Mini ring */}
+        {/* ── RIGHT: Module summary cards ── */}
+        <div className="space-y-2">
+
+          {/* Health status */}
+          <button type="button" onClick={() => onNavigate("mantenimiento")}
+            className={`w-full flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors hover:opacity-90 ${status.borderColor} ${status.bg}`}>
             {(() => {
-              const R = 18; const C = 2 * Math.PI * R;
+              const R = 16; const C = 2 * Math.PI * R;
               return (
-                <svg width="44" height="44" viewBox="0 0 44 44" className="shrink-0">
-                  <circle cx="22" cy="22" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
-                  <circle cx="22" cy="22" r={R} fill="none" stroke={healthColor} strokeWidth="5"
+                <svg width="38" height="38" viewBox="0 0 38 38" className="shrink-0">
+                  <circle cx="19" cy="19" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+                  <circle cx="19" cy="19" r={R} fill="none" stroke={healthColor} strokeWidth="5"
                     strokeLinecap="round" strokeDasharray={C}
                     strokeDashoffset={C - (healthScore / 100) * C}
-                    transform="rotate(-90 22 22)"
+                    transform="rotate(-90 19 19)"
                     style={{ transition: "stroke-dashoffset 1s ease" }}
                   />
-                  <text x="22" y="22" textAnchor="middle" dominantBaseline="central"
-                    style={{ fontSize: 11, fontWeight: 700, fill: healthColor }}>{healthScore}</text>
+                  <text x="19" y="19" textAnchor="middle" dominantBaseline="central"
+                    style={{ fontSize: 10, fontWeight: 700, fill: healthColor }}>{healthScore}</text>
                 </svg>
               );
             })()}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold" style={{ color: healthColor }}>{healthLabel}</span>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${status.color} ${status.borderColor}`}>{status.label}</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold" style={{ color: healthColor }}>{healthLabel}</span>
+                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-medium ${status.color} ${status.borderColor}`}>{status.label}</span>
               </div>
-              <p className="mt-0.5 text-[10px] text-white/35 truncate">{status.message}</p>
-              <div className="mt-1 flex gap-3 text-[9px] text-white/25">
-                <span>Km restantes: <span className={status.color}>{kmRestantes > 0 ? kmRestantes.toLocaleString() : "Vencido"}</span></span>
-                {mesesRestantes !== undefined && (
-                  <span>Tiempo: <span className={status.color}>{mesesRestantes > 0 ? `${mesesRestantes} meses` : "Vencido"}</span></span>
-                )}
-              </div>
+              <p className="mt-0.5 text-[9px] text-white/30 truncate">{status.message}</p>
             </div>
             <span className="shrink-0 text-white/20 text-xs">→</span>
           </button>
 
-          {/* Stacked spend breakdown */}
-          {totalIntegrado > 0 && (
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-              <p className="mb-2 text-[10px] font-medium text-white/40">Desglose del gasto integrado</p>
-              {/* Stacked bar */}
-              <div className="flex h-4 overflow-hidden rounded-full mb-2">
-                {segments.map((seg) => (
-                  <div key={seg.label}
-                    style={{ width: `${(seg.value / totalIntegrado) * 100}%`, background: seg.color, opacity: 0.7 }}
-                    title={`${seg.label}: ${formatCurrency(seg.value)}`}
-                  />
-                ))}
-              </div>
-              {/* Horizontal mini-bars per category */}
-              <div className="space-y-1.5">
-                {segments.map((seg) => {
-                  const pct = Math.round((seg.value / totalIntegrado) * 100);
-                  return (
-                    <div key={seg.label} className="flex items-center gap-2 text-[10px]">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: seg.color }} />
-                      <span className="w-24 shrink-0 text-white/40">{seg.label}</span>
-                      <div className="flex-1 h-1 rounded-full bg-white/[0.05]">
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: seg.color, opacity: 0.6 }} />
-                      </div>
-                      <span className="w-16 text-right font-medium text-white/55">{formatCurrency(seg.value)}</span>
-                      <span className="w-7 text-right text-white/25">{pct}%</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-2 flex justify-between border-t border-white/5 pt-2 text-[10px]">
-                <span className="text-white/25">Total</span>
-                <span className="font-bold text-byd-400">{formatCurrency(totalIntegrado)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ───── RIGHT column (1fr) ───── */}
-        <div className="space-y-2">
-
           {/* ⛽ Gasolina */}
           <button type="button" onClick={() => onNavigate("gasolina")}
-            className="w-full rounded-xl border border-amber-500/15 bg-amber-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-amber-500/[0.06]">
-            <p className="mb-1.5 text-[10px] font-semibold text-amber-400/80">⛽ Gasolina</p>
-            <div className="space-y-1 text-[10px]">
-              <div className="flex justify-between"><span className="text-white/30">{totalLitros.toFixed(0)} L · {rendimientoKmL} km/L</span><span className="font-medium text-white/60">{formatCurrency(gastoGasolina)}</span></div>
-              <div className="flex justify-between"><span className="text-white/30">Costo / km</span><span className="font-medium text-white/60">${costoPorKmGasolina.toFixed(2)}</span></div>
-              {avgKmRecarga > 0 && <div className="flex justify-between"><span className="text-white/30">Km entre recargas</span><span className="font-medium text-white/60">{avgKmRecarga.toLocaleString()}</span></div>}
-              {ultimaRecarga && <div className="flex justify-between"><span className="text-white/30">Última recarga</span><span className="font-medium text-white/60">{formatDateShort(ultimaRecarga.fecha)}</span></div>}
+            className="w-full rounded-xl border border-amber-500/15 bg-amber-500/[0.03] p-3 text-left transition-colors hover:bg-amber-500/[0.06]">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-400/80">⛽ Gasolina</span>
+              <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
+            </div>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
+              <div><p className="text-white/25 leading-tight">Litros</p><p className="font-semibold text-white/70">{totalLitros.toFixed(0)} L</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto</p><p className="font-semibold text-white/70">{formatCurrency(gastoGasolina)}</p></div>
+              <div><p className="text-white/25 leading-tight">km/L</p><p className="font-semibold text-white/70">{rendimientoKmL}</p></div>
+              <div><p className="text-white/25 leading-tight">Última</p><p className="font-semibold text-white/70 truncate">{ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Km/recarga</p><p className="font-semibold text-white/70">{avgKmRecarga > 0 ? avgKmRecarga.toLocaleString() : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">$/km</p><p className="font-semibold text-white/70">${costoPorKmGasolina.toFixed(2)}</p></div>
             </div>
           </button>
 
           {/* ⚡ Electricidad */}
           <button type="button" onClick={() => onNavigate("energia")}
-            className="w-full rounded-xl border border-green-500/15 bg-green-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-green-500/[0.06]">
-            <p className="mb-1.5 text-[10px] font-semibold text-green-400/80">⚡ Electricidad BYD</p>
-            <div className="space-y-1 text-[10px]">
-              <div className="flex justify-between"><span className="text-white/30">Gasto anual</span><span className="font-medium text-white/60">{formatCurrency(kpisElectricos.anual)}</span></div>
-              {totalKwhByd > 0 && <div className="flex justify-between"><span className="text-white/30">kWh BYD acum.</span><span className="font-medium text-white/60">{totalKwhByd.toFixed(0)} kWh</span></div>}
-              {totalKwhCasa > 0 && <div className="flex justify-between"><span className="text-white/30">kWh Casa acum.</span><span className="font-medium text-white/60">{totalKwhCasa.toFixed(0)} kWh</span></div>}
-              {avgKwhRate > 0 && <div className="flex justify-between"><span className="text-white/30">Tarifa prom.</span><span className="font-medium text-white/60">${avgKwhRate.toFixed(2)}/kWh</span></div>}
+            className="w-full rounded-xl border border-green-500/15 bg-green-500/[0.03] p-3 text-left transition-colors hover:bg-green-500/[0.06]">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-green-400/80">⚡ Electricidad BYD</span>
+              <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
+            </div>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
+              <div><p className="text-white/25 leading-tight">kWh BYD</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
+              <div><p className="text-white/25 leading-tight">$/kWh</p><p className="font-semibold text-white/70">{avgKwhRate > 0 ? `$${avgKwhRate.toFixed(2)}` : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Mensual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.mensual)}</p></div>
+              <div><p className="text-white/25 leading-tight">Casa</p><p className="font-semibold text-white/70">{totalKwhCasa > 0 ? `${totalKwhCasa.toFixed(0)} kWh` : "—"}</p></div>
+              <div><p className="text-white/25 leading-tight">Anual</p><p className="font-semibold text-white/70">{formatCurrency(kpisElectricos.anual)}</p></div>
             </div>
           </button>
 
           {/* 🔧 Mantenimiento */}
           <button type="button" onClick={() => onNavigate("mantenimiento")}
-            className="w-full rounded-xl border border-blue-500/15 bg-blue-500/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-blue-500/[0.06]">
-            <p className="mb-1.5 text-[10px] font-semibold text-blue-400/80">🔧 Mantenimiento</p>
-            <div className="space-y-1 text-[10px]">
-              <div className="flex justify-between"><span className="text-white/30">Serv. oficial</span><span className="font-medium text-white/60">{formatCurrency(totalOficial)}</span></div>
-              {totalOtros > 0 && <div className="flex justify-between"><span className="text-white/30">Otros costos</span><span className="font-medium text-white/60">{formatCurrency(totalOtros)}</span></div>}
-              <div className="flex justify-between"><span className="text-white/30">Servicios realizados</span><span className="font-medium text-white/60">{mantenimientoList.length}</span></div>
-              {proximo && <div className="flex justify-between"><span className="text-white/30">Próximo</span><span className={`font-medium ${status.color}`}>{proximo.km.toLocaleString()} km</span></div>}
+            className="w-full rounded-xl border border-blue-500/15 bg-blue-500/[0.03] p-3 text-left transition-colors hover:bg-blue-500/[0.06]">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-400/80">🔧 Mantenimiento</span>
+              <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
+            </div>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
+              <div><p className="text-white/25 leading-tight">Oficial</p><p className="font-semibold text-white/70">{formatCurrency(totalOficial)}</p></div>
+              <div><p className="text-white/25 leading-tight">Otros</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
+              <div><p className="text-white/25 leading-tight">Servicios</p><p className="font-semibold text-white/70">{mantenimientoList.length}</p></div>
+              <div><p className="text-white/25 leading-tight">Próximo</p><p className={`font-semibold truncate ${status.color}`}>{proximo ? `${proximo.km.toLocaleString()} km` : "Al día"}</p></div>
+              <div><p className="text-white/25 leading-tight">Estado</p><p className={`font-semibold ${status.color}`}>{status.label}</p></div>
+              <div><p className="text-white/25 leading-tight">Km rest.</p><p className={`font-semibold ${status.color}`}>{kmRestantes > 0 ? kmRestantes.toLocaleString() : "Vencido"}</p></div>
             </div>
           </button>
+
+          {/* 🔩 Otros costos */}
+          {totalOtros > 0 && (
+            <button type="button" onClick={() => onNavigate("mantenimiento")}
+              className="w-full rounded-xl border border-purple-500/15 bg-purple-500/[0.03] p-3 text-left transition-colors hover:bg-purple-500/[0.06]">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400/80">🔩 Otros costos</span>
+                <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
+              </div>
+              <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
+                <div><p className="text-white/25 leading-tight">Total</p><p className="font-semibold text-white/70">{formatCurrency(totalOtros)}</p></div>
+                <div><p className="text-white/25 leading-tight">Registros</p><p className="font-semibold text-white/70">{otrosCostosList.length}</p></div>
+                <div><p className="text-white/25 leading-tight">Prom./reg.</p><p className="font-semibold text-white/70">{otrosCostosList.length > 0 ? formatCurrency(Math.round(totalOtros / otrosCostosList.length)) : "—"}</p></div>
+              </div>
+            </button>
+          )}
 
         </div>
       </div>
@@ -4298,6 +4490,97 @@ function SeccionEnergia({
   );
 }
 
+// ── Sidebar ───────────────────────────────────────────────────────────────
+const NAV_ITEMS: { label: string; icon: string; s: Section }[] = [
+  { label: "Dashboard",       icon: "🏠", s: "dashboard"     },
+  { label: "Gasolina",        icon: "⛽", s: "gasolina"      },
+  { label: "Cargas EV",       icon: "⚡", s: "cargas"        },
+  { label: "Mantenimiento",   icon: "🔧", s: "mantenimiento" },
+  { label: "Historial",       icon: "📋", s: "historial"     },
+  { label: "Tickets",         icon: "🎫", s: "tickets"       },
+  { label: "Reportes",        icon: "📊", s: "reportes"      },
+  { label: "Centro Energía",  icon: "⚡", s: "energia"       },
+];
+
+function Sidebar({ section, onNavigate, odometroActual, batteryPct, vehiculo, onSettings }: {
+  section: Section;
+  onNavigate: (s: Section) => void;
+  odometroActual: number;
+  batteryPct: number;
+  vehiculo: string;
+  onSettings: () => void;
+}) {
+  return (
+    <aside className="hidden w-[210px] shrink-0 flex-col border-r border-white/[0.05] bg-[#080a0b] sm:flex">
+      {/* Logo */}
+      <div className="border-b border-white/[0.05] px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-byd-500 text-black">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold leading-none">BYD Wallet</p>
+            <p className="mt-0.5 truncate text-[10px] text-white/30">{vehiculo}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.s}
+            type="button"
+            onClick={() => onNavigate(item.s)}
+            className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+              section === item.s
+                ? "bg-byd-500/15 text-byd-400"
+                : "text-white/35 hover:bg-white/[0.04] hover:text-white/65"
+            }`}
+          >
+            <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+            <span className="text-[11px] font-medium leading-none">{item.label}</span>
+            {section === item.s && <span className="ml-auto h-1 w-1 rounded-full bg-byd-400" />}
+          </button>
+        ))}
+      </nav>
+
+      {/* Vehicle info */}
+      <div className="mx-2 mb-2 rounded-xl border border-white/[0.05] bg-white/[0.025] p-3">
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-white/25">Odómetro actual</p>
+        <p className="mt-0.5 text-[15px] font-bold text-white/80">{odometroActual.toLocaleString()} km</p>
+      </div>
+
+      {/* Battery */}
+      <div className="mx-2 mb-2 flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.025] px-3 py-2.5">
+        <ProgressRing pct={batteryPct} />
+        <div>
+          <p className="text-[9px] text-white/25">Batería</p>
+          <p className="text-sm font-semibold">{batteryPct}%</p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-white/[0.05] px-4 py-2.5">
+        <span className="text-[9px] text-white/20">v{APP_VERSION}</span>
+        <button
+          type="button"
+          onClick={onSettings}
+          className="flex h-6 w-6 items-center justify-center rounded-lg text-white/25 transition-colors hover:text-byd-400"
+          title="Configuración"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 export default function Home() {
   const [section, setSection] = useState<Section>("dashboard");
   const [formModal, setFormModal] = useState<FormModal>(null);
@@ -4466,6 +4749,40 @@ export default function Home() {
   const otrosCostosList = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, [])
     .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
 
+  // ── Global health/próximo computation (for top KPI chips) ─────────────
+  const proximoServicioGlobal = BYD_KING_SERVICIOS.find((s) => s.km > kpis.odometroActual) ?? null;
+  const kmRestantesGlobal = proximoServicioGlobal ? proximoServicioGlobal.km - kpis.odometroActual : 0;
+  const lastCompletadoGlobal = [...mantenimientoList]
+    .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""))
+    .find((e) => e.estado === "completado");
+  const mesesRestantesGlobal: number | undefined = (() => {
+    if (!lastCompletadoGlobal?.fecha) return undefined;
+    const d = new Date(lastCompletadoGlobal.fecha);
+    const now = new Date();
+    return 12 - ((now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth());
+  })();
+  const statusGlobal = getMantenimientoStatus(kmRestantesGlobal, mesesRestantesGlobal);
+  let healthScoreGlobal = 100;
+  if (kmRestantesGlobal <= 0)         healthScoreGlobal -= 35;
+  else if (kmRestantesGlobal <= 500)  healthScoreGlobal -= 20;
+  else if (kmRestantesGlobal <= 2000) healthScoreGlobal -= 10;
+  if (mesesRestantesGlobal !== undefined) {
+    if (mesesRestantesGlobal <= 0)    healthScoreGlobal -= 20;
+    else if (mesesRestantesGlobal <= 2) healthScoreGlobal -= 5;
+  }
+  if (mantenimientoList.length === 0) healthScoreGlobal -= 15;
+  healthScoreGlobal = Math.max(0, Math.min(100, healthScoreGlobal));
+  const healthLabelGlobal =
+    healthScoreGlobal >= 98 ? "Excelente" :
+    healthScoreGlobal >= 90 ? "Muy bueno" :
+    healthScoreGlobal >= 80 ? "Bueno" :
+    healthScoreGlobal >= 70 ? "Requiere atención" : "Atención inmediata";
+  const healthColorGlobal =
+    healthScoreGlobal >= 98 ? "#4ade80" :
+    healthScoreGlobal >= 90 ? "#60efb0" :
+    healthScoreGlobal >= 80 ? "#a3e635" :
+    healthScoreGlobal >= 70 ? "#fbbf24" : "#f87171";
+
   const handleSave = useCallback(function <T>(key: string, entry: T) {
     const list = loadData<T[]>(key, []);
     saveData(key, [...list, entry]);
@@ -4590,128 +4907,103 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080a0b] text-white selection:bg-byd-500/30">
-      {/* ── Background decoration ── */}
+    <div className="flex h-screen overflow-hidden bg-[#080a0b] text-white selection:bg-byd-500/30">
+      {/* Background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 right-[-10%] h-[500px] w-[500px] rounded-full bg-byd-500/[0.04] blur-[120px]" />
         <div className="absolute bottom-[-20%] left-[-10%] h-[400px] w-[400px] rounded-full bg-byd-500/[0.03] blur-[100px]" />
       </div>
 
-      <div className="relative mx-auto max-w-6xl px-3 pb-8 pt-3 sm:px-5 sm:pt-5 lg:px-6">
-        {/* ═══ HEADER ═══ */}
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-5">
+      {/* Sidebar — desktop only */}
+      <Sidebar
+        section={section}
+        onNavigate={setSection}
+        odometroActual={kpis.odometroActual}
+        batteryPct={batteryPct}
+        vehiculo={kpis.vehiculo}
+        onSettings={() => setFormModal("settings")}
+      />
+
+      {/* Main area */}
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+
+        {/* Desktop top bar */}
+        <header className="hidden shrink-0 items-center justify-between border-b border-white/[0.05] px-5 py-2.5 sm:flex">
+          <div className="flex items-center gap-2 text-[11px] text-white/40">
+            <span>📅</span>
+            <span className="capitalize">{dateStr}</span>
+          </div>
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-byd-500 text-black sm:h-10 sm:w-10">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+            <span className="text-[10px] text-white/25">v{APP_VERSION}</span>
+            <button type="button" onClick={() => setKpiVersion((v) => v + 1)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/5 bg-white/[0.03] text-white/30 transition-colors hover:text-byd-400"
+              title="Actualizar datos">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+            <button type="button" onClick={() => setFormModal("settings")}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/5 bg-white/[0.03] text-white/30 transition-colors hover:text-byd-400">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        {/* Mobile header */}
+        <header className="flex shrink-0 items-center justify-between border-b border-white/[0.05] bg-[#080a0b] px-4 py-2.5 sm:hidden">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-byd-500 text-black">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight sm:text-lg">BYD Wallet</h1>
-              <p className="text-[11px] text-white/35 sm:text-xs">{kpis.vehiculo}</p>
+              <p className="text-xs font-bold leading-none">BYD Wallet</p>
+              <p className="text-[9px] text-white/30">{kpis.vehiculo}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-[11px] text-white/40 sm:text-xs">{dateStr}</p>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-lg border border-white/5 bg-white/[0.04] px-2 py-1">
+              <ProgressRing pct={batteryPct} />
+              <p className="text-xs font-semibold">{batteryPct}%</p>
             </div>
-            <button
-              onClick={() => setFormModal("settings")}
-              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-white/[0.04] text-white/30 transition-colors hover:border-byd-500/30 hover:text-byd-400"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            <button type="button" onClick={() => setFormModal("settings")}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/5 bg-white/[0.04] text-white/30 hover:text-byd-400">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </button>
-            <span className="hidden text-[10px] text-white/30 sm:block">BYD Wallet · v{APP_VERSION}</span>
-            <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-1.5">
-              <ProgressRing pct={batteryPct} />
-              <div className="text-right">
-                <p className="text-[10px] leading-tight text-white/40">Batería</p>
-                <p className="text-sm font-semibold">{batteryPct}%</p>
-              </div>
-            </div>
           </div>
         </header>
 
-        {/* ═══ KPI ROW 1 ═══ */}
-        <section className="mb-2 grid grid-cols-2 gap-2 sm:mb-3 sm:grid-cols-5">
-          <KpiCard label="Gasto hoy" value={formatCurrency(kpis.gastoHoy)} icon={<IconDollar />} />
-          <KpiCard label="Gasto semanal" value={formatCurrency(kpis.gastoSemanal)} icon={<IconCalendar />} />
-          <KpiCard label="Gasto mensual" value={formatCurrency(kpis.gastoMensual)} icon={<IconCalendar />} />
-          <KpiCard label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} icon={<IconCalendar />} />
-          <KpiCard label="Gasto total" value={formatCurrency(kpis.gastoTotal)} color="text-byd-400" icon={<IconTotal />} />
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+        <div className="px-4 pb-5 pt-3 sm:px-5">
+
+        {/* 6-chip global KPI row */}
+        <section className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+          <KpiChip label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} sub="este año" color="text-byd-400" />
+          <KpiChip label="Costo / km" value={`$${kpis.costoPorKm}`} sub="global" />
+          <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="actual" />
+          <KpiChip label="🩺 Salud" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
+          <KpiChip label="Próx. servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Al día"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km rest.` : statusGlobal.label} color={statusGlobal.color} />
+          <KpiChip label="Elec. mensual" value={formatCurrency(kpisElectricos.mensual)} sub="BYD" color="text-green-400/80" />
         </section>
 
-        {/* ═══ KPI ROW 2 ═══ */}
-        <section className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <KpiCard
-            label="Costo por km"
-            value={`$${kpis.costoPorKm}`}
-            sub="pesos por kilómetro"
-            icon={<IconRoute />}
-          />
-          <KpiCard label="Rendimiento" value={`${formatDecimal(kpis.rendimientoKmL)} km/L`} sub="promedio recargas" icon={<IconFuel />} />
-          <KpiCard label="Rendimiento EV" value={`${formatDecimal(kpis.rendimientoKmKwh)} km/kWh`} sub="eléctrico" icon={<IconBolt />} />
-          <KpiCard
-            label="Total recargas"
-            value={String(kpis.numRecargas)}
-            color="text-byd-400"
-            sub={formatCurrency(kpis.totalGasolina) + " gastados"}
-            icon={<IconRefresh />}
-          />
-        </section>
-
-        {/* ═══ KPI ROW 3: Eléctrico ═══ */}
-        {periodosElectricos.length > 0 && (
-          <section className="mb-2 grid grid-cols-2 gap-2 sm:mb-3 sm:grid-cols-3">
-            <KpiCard
-              label="Gasto eléctrico mensual"
-              value={formatCurrency(kpisElectricos.mensual)}
-              sub="este mes · BYD"
-              color="text-byd-400"
-              icon={<IconBolt />}
-            />
-            <KpiCard
-              label="Gasto eléctrico anual"
-              value={formatCurrency(kpisElectricos.anual)}
-              sub="este año · BYD"
-              color="text-byd-400"
-              icon={<IconBolt />}
-            />
-            <KpiCard
-              label="Gasto eléctrico total"
-              value={formatCurrency(kpisElectricos.total)}
-              sub="acumulado · BYD"
-              color="text-byd-400"
-              icon={<IconBolt />}
-            />
-          </section>
-        )}
-
-        {/* ═══ NAV TABS ═══ */}
-        <nav className="mb-3 flex gap-0.5 overflow-x-auto rounded-xl border border-white/5 bg-white/[0.03] p-0.5 sm:mb-4">
-          <NavTab active={section === "dashboard"} label="🏠 Dashboard" onClick={() => setSection("dashboard")} />
-          <NavTab active={section === "gasolina"} label="⛽ Gasolina" onClick={() => setSection("gasolina")} />
-          <NavTab active={section === "cargas"} label="⚡ Cargas EV" onClick={() => setSection("cargas")} />
-          <NavTab active={section === "mantenimiento"} label="🔧 Mantenimiento" onClick={() => setSection("mantenimiento")} />
-          <NavTab active={section === "historial"} label="📋 Historial" onClick={() => setSection("historial")} />
-          <NavTab active={section === "tickets"} label="🎫 Tickets" onClick={() => setSection("tickets")} />
-          <NavTab active={section === "reportes"} label="📊 Reportes" onClick={() => setSection("reportes")} />
-          <NavTab active={section === "energia"} label="⚡ Centro de Energía" onClick={() => setSection("energia")} />
+        {/* Mobile-only nav tabs */}
+        <nav className="mb-2 flex gap-0.5 overflow-x-auto rounded-xl border border-white/5 bg-white/[0.03] p-0.5 sm:hidden">
+          {NAV_ITEMS.map((item) => (
+            <NavTab key={item.s} active={section === item.s} label={`${item.icon} ${item.label}`} onClick={() => setSection(item.s)} />
+          ))}
         </nav>
 
         {/* ═══ SECTION CONTENT ═══ */}
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 backdrop-blur-xl sm:p-5">
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 backdrop-blur-xl sm:p-4">
           {/* ── Dashboard ── */}
           {section === "dashboard" && (
             <SeccionDashboard
@@ -4884,10 +5176,12 @@ export default function Home() {
         </div>
 
         {/* ═══ FOOTER ═══ */}
-        <footer className="mt-4 text-center text-[10px] text-white/15">
-          BYD Wallet
+        <footer className="mt-3 text-center text-[9px] text-white/15">
+          BYD Wallet · v{APP_VERSION}
         </footer>
-      </div>
+        </div>{/* end px-4 pb-5 */}
+        </div>{/* end overflow-y-auto */}
+      </div>{/* end main area */}
 
       {/* ═══ MODALS ═══ */}
       <Modal isOpen={formModal === "gasolina"} onClose={() => setFormModal(null)} title="Agregar carga de gasolina">

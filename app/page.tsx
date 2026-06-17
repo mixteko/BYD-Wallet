@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.0";
+const APP_VERSION = "0.5.2.2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1691,31 +1691,186 @@ function ComparativoGasolinaVsElectricidad() {
 }
 
 // ── Centro de Energía component ──────────────────────────────────────────
-function SeccionEnergia() {
+function SeccionEnergia({
+  periodos,
+  cargas,
+}: {
+  periodos: PeriodoElectricoRow[];
+  cargas: CargaEntry[];
+}) {
+  const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
+
+  // Compute kWh BYD in the current period
+  const kwhBydPeriodo = ultimoRecibo
+    ? cargas
+        .filter((c) => c.fecha >= ultimoRecibo.fecha_inicio && c.fecha <= ultimoRecibo.fecha_fin)
+        .reduce((sum, c) => sum + c.kwhCargados, 0)
+    : 0;
+  const kwhBydRounded = Math.round(kwhBydPeriodo * 10) / 10;
+  const kwhBimestre = ultimoRecibo ? Number(ultimoRecibo.kwh_bimestre) : 0;
+  const costoKwh = ultimoRecibo?.costo_kwh_mxn ? Number(ultimoRecibo.costo_kwh_mxn) : 0;
+  const kwhCasa = kwhBimestre > 0 ? Math.max(0, kwhBimestre - kwhBydRounded) : 0;
+  const pctByd = kwhBimestre > 0 ? Math.round((kwhBydRounded / kwhBimestre) * 100) : 0;
+  const pctCasa = 100 - pctByd;
+  const costoBydPromedio = Math.round(kwhBydRounded * costoKwh * 100) / 100;
+  const costoCasaPromedio = Math.round(kwhCasa * costoKwh * 100) / 100;
+
+  const recibosAnteriores = periodos.slice(1);
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {/* Card A: Recibo CFE activo */}
+      {/* Card A: Recibo CFE vigente */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-2 text-sm font-medium text-white/80">Recibo CFE activo</h3>
-        <p className="text-sm text-white/30">Aquí se mostrará el recibo bimestral vigente.</p>
+        {ultimoRecibo ? (
+          <>
+            <h3 className="mb-3 text-sm font-medium text-white/80">📄 Recibo CFE vigente</h3>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/40">Periodo</span>
+                <span className="font-medium text-white/80">
+                  {formatDateOnlyMX(ultimoRecibo.fecha_inicio)} — {formatDateOnlyMX(ultimoRecibo.fecha_fin)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Proveedor</span>
+                <span className="font-medium text-white/80">{ultimoRecibo.proveedor || "CFE"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Tarifa</span>
+                <span className="font-medium text-white/80">{ultimoRecibo.tarifa || "1C"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Consumo</span>
+                <span className="font-medium text-white/80">{kwhBimestre} kWh</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Costo total</span>
+                <span className="font-medium text-byd-400">{formatCurrency(ultimoRecibo.costo_total_mxn)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Costo promedio</span>
+                <span className="font-medium text-white/80">
+                  {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh` : "—"}
+                </span>
+              </div>
+              {ultimoRecibo.numero_recibo && (
+                <div className="flex justify-between">
+                  <span className="text-white/40">Número de recibo</span>
+                  <span className="font-medium text-white/60 text-xs">{ultimoRecibo.numero_recibo}</span>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="mb-3 text-sm font-medium text-white/80">📄 Recibo CFE vigente</h3>
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <p className="text-sm text-white/30">No hay recibos CFE registrados.</p>
+              <button
+                type="button"
+                className="rounded-xl border border-byd-500/30 bg-byd-500/10 px-4 py-2 text-sm font-medium text-byd-400 transition-colors hover:bg-byd-500/20"
+              >
+                + Agregar primer recibo
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Card B: Consumo Casa vs BYD */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-2 text-sm font-medium text-white/80">Consumo Casa vs BYD</h3>
-        <p className="text-sm text-white/30">Aquí se comparará el consumo del hogar contra el consumo del vehículo.</p>
+        {ultimoRecibo ? (
+          <>
+            <h3 className="mb-3 text-sm font-medium text-white/80">Consumo Casa vs BYD</h3>
+            <div className="space-y-2">
+              {kwhBimestre > 0 && (
+                <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div className="bg-byd-400 transition-all duration-500" style={{ width: `${pctByd}%` }} />
+                  <div className="bg-amber-500/40 transition-all duration-500" style={{ width: `${pctCasa}%` }} />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg bg-byd-500/10 p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-byd-400" />
+                    <span className="text-xs font-medium text-white/50">BYD</span>
+                  </div>
+                  <p className="mt-1 text-base font-semibold text-byd-400">{pctByd}%</p>
+                  <p className="text-xs text-white/40">{kwhBydRounded} kWh</p>
+                </div>
+                <div className="rounded-lg bg-amber-500/10 p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-amber-500/40" />
+                    <span className="text-xs font-medium text-white/50">Casa</span>
+                  </div>
+                  <p className="mt-1 text-base font-semibold text-amber-400">{pctCasa}%</p>
+                  <p className="text-xs text-white/40">{kwhCasa} kWh</p>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="mb-2 text-sm font-medium text-white/80">Consumo Casa vs BYD</h3>
+            <p className="text-sm text-white/30">Aquí se comparará el consumo del hogar contra el consumo del vehículo.</p>
+          </>
+        )}
       </div>
 
       {/* Card C: Costos eléctricos */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-2 text-sm font-medium text-white/80">Costos eléctricos</h3>
-        <p className="text-sm text-white/30">Aquí se mostrarán el costo promedio, conservador y futuro costo marginal.</p>
+        <h3 className="mb-3 text-sm font-medium text-white/80">Costos eléctricos</h3>
+        {ultimoRecibo ? (
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+              <span className="text-white/40">Costo BYD promedio</span>
+              <span className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+              <span className="text-white/40">Costo casa promedio</span>
+              <span className="font-semibold text-white">{formatCurrency(costoCasaPromedio)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+              <span className="text-white/40">Costo conservador</span>
+              <span className="text-xs text-white/30">Próximamente</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+              <span className="text-white/40">Costo marginal</span>
+              <span className="text-xs text-white/30">Próximamente</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-white/30">Aquí se mostrarán los costos cuando haya un recibo vigente.</p>
+        )}
       </div>
 
       {/* Card D: Historial de recibos */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-2 text-sm font-medium text-white/80">Historial de recibos</h3>
-        <p className="text-sm text-white/30">Aquí se listarán los recibos CFE registrados.</p>
+        <h3 className="mb-3 text-sm font-medium text-white/80">Historial de recibos</h3>
+        {ultimoRecibo ? (
+          recibosAnteriores.length > 0 ? (
+            <div className="space-y-2 text-sm">
+              {recibosAnteriores.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2"
+                >
+                  <div>
+                    <p className="text-white/60">
+                      {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
+                    </p>
+                    <p className="text-[11px] text-white/30">{r.kwh_bimestre} kWh</p>
+                  </div>
+                  <p className="font-medium text-white/80">{formatCurrency(r.costo_total_mxn)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-white/30">No hay más recibos registrados.</p>
+          )
+        ) : (
+          <p className="text-sm text-white/30">Aquí se listarán los recibos CFE registrados.</p>
+        )}
       </div>
     </div>
   );
@@ -2081,7 +2236,7 @@ export default function Home() {
           )}
 
           {/* ── Energía ── */}
-          {section === "energia" && <SeccionEnergia />}
+          {section === "energia" && <SeccionEnergia periodos={periodosElectricos} cargas={cargasList} />}
         </div>
 
         {/* ═══ FOOTER ═══ */}

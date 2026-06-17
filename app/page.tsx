@@ -1924,6 +1924,18 @@ function getPeriodoAlerts(r: PeriodoElectricoRow): string[] {
   return alerts;
 }
 
+function getBydKwhForPeriod(r: PeriodoElectricoRow, cargas: CargaEntry[]) {
+  const manualVal = r.kwh_byd_periodo != null ? Number(r.kwh_byd_periodo) : 0;
+  if (manualVal > 0) {
+    return { value: manualVal, isManual: true };
+  }
+  const calculated = cargas
+    .filter((c) => c.fecha >= r.fecha_inicio && c.fecha <= r.fecha_fin)
+    .reduce((sum, c) => sum + c.kwhCargados, 0);
+  const rounded = Math.round(calculated * 10) / 10;
+  return { value: rounded, isManual: false };
+}
+
 // ── Centro de Energía component ──────────────────────────────────────────
 function SeccionEnergia({
   periodos,
@@ -1948,15 +1960,10 @@ function SeccionEnergia({
 }) {
   const ultimoRecibo = periodos.length > 0 ? periodos[0] : null;
 
-  // Compute kWh BYD — use stored value from DB, fall back to cargas-based calc
-  const kwhBydPeriodo = ultimoRecibo?.kwh_byd_periodo != null
-    ? Number(ultimoRecibo.kwh_byd_periodo)
-    : ultimoRecibo
-      ? cargas
-          .filter((c) => c.fecha >= ultimoRecibo.fecha_inicio && c.fecha <= ultimoRecibo.fecha_fin)
-          .reduce((sum, c) => sum + c.kwhCargados, 0)
-      : 0;
-  const kwhBydRounded = Math.round(kwhBydPeriodo * 10) / 10;
+  // Compute kWh BYD — use stored value from DB if > 0, else calculate from cargas
+  const bydInfo = ultimoRecibo ? getBydKwhForPeriod(ultimoRecibo, cargas) : { value: 0, isManual: false };
+  const kwhBydRounded = bydInfo.value;
+  
   const kwhBimestre = ultimoRecibo ? Number(ultimoRecibo.kwh_bimestre) : 0;
   const costoKwh = ultimoRecibo?.costo_kwh_mxn ? Number(ultimoRecibo.costo_kwh_mxn) : 0;
   const kwhCasa = kwhBimestre > 0 ? Math.max(0, kwhBimestre - kwhBydRounded) : 0;
@@ -1991,56 +1998,59 @@ function SeccionEnergia({
 
       {/* ═══ Detail modal ═══ */}
       <Modal isOpen={!!detalle} onClose={() => onViewRecibo(null)} title="📄 Detalle del recibo">
-        {detalle && (
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-white/40">Periodo</span>
-              <span className="font-medium text-white/80">
-                {formatDateOnlyMX(detalle.fecha_inicio)} — {formatDateOnlyMX(detalle.fecha_fin)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Proveedor</span>
-              <span className="font-medium text-white/80">{detalle.proveedor || "CFE"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Tarifa</span>
-              <span className="font-medium text-white/80">{detalle.tarifa || "1C"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Consumo</span>
-              <span className="font-medium text-white/80">{detalle.kwh_bimestre} kWh</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Consumo BYD</span>
-              <span className="font-medium text-white/80">
-                {detalle.kwh_byd_periodo != null ? `${detalle.kwh_byd_periodo} kWh` : "—"}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Costo total</span>
-              <span className="font-medium text-byd-400">{formatCurrency(detalle.costo_total_mxn)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/40">Costo promedio</span>
-              <span className="font-medium text-white/80">
-                {detalle.costo_kwh_mxn ? `${Number(detalle.costo_kwh_mxn).toFixed(4)}/kWh` : "—"}
-              </span>
-            </div>
-            {detalle.numero_recibo && (
+        {detalle && (() => {
+          const dInfo = getBydKwhForPeriod(detalle, cargas);
+          return (
+            <div className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-white/40">Número de recibo</span>
-                <span className="font-medium text-white/60 text-xs">{detalle.numero_recibo}</span>
+                <span className="text-white/40">Periodo</span>
+                <span className="font-medium text-white/80">
+                  {formatDateOnlyMX(detalle.fecha_inicio)} — {formatDateOnlyMX(detalle.fecha_fin)}
+                </span>
               </div>
-            )}
-            {detalle.notas && (
               <div className="flex justify-between">
-                <span className="text-white/40">Notas</span>
-                <span className="font-medium text-white/60 text-xs">{detalle.notas}</span>
+                <span className="text-white/40">Proveedor</span>
+                <span className="font-medium text-white/80">{detalle.proveedor || "CFE"}</span>
               </div>
-            )}
-          </div>
-        )}
+              <div className="flex justify-between">
+                <span className="text-white/40">Tarifa</span>
+                <span className="font-medium text-white/80">{detalle.tarifa || "1C"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Consumo total</span>
+                <span className="font-medium text-white/80">{detalle.kwh_bimestre} kWh</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Consumo BYD</span>
+                <span className="font-medium text-byd-400">
+                  {dInfo.isManual ? "BYD: " : "BYD auto: "}{dInfo.value} kWh
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Costo total</span>
+                <span className="font-medium text-byd-400">{formatCurrency(detalle.costo_total_mxn)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Costo promedio</span>
+                <span className="font-medium text-white/80">
+                  {detalle.costo_kwh_mxn ? `${Number(detalle.costo_kwh_mxn).toFixed(4)}/kWh` : "—"}
+                </span>
+              </div>
+              {detalle.numero_recibo && (
+                <div className="flex justify-between">
+                  <span className="text-white/40">Número de recibo</span>
+                  <span className="font-medium text-white/60 text-xs">{detalle.numero_recibo}</span>
+                </div>
+              )}
+              {detalle.notas && (
+                <div className="flex justify-between">
+                  <span className="text-white/40">Notas</span>
+                  <span className="font-medium text-white/60 text-xs">{detalle.notas}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2067,6 +2077,12 @@ function SeccionEnergia({
               <div className="flex justify-between">
                 <span className="text-white/40">Consumo</span>
                 <span className="font-medium text-white/80">{kwhBimestre} kWh</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Consumo BYD</span>
+                <span className="font-medium text-byd-400">
+                  {bydInfo.isManual ? "BYD: " : "BYD auto: "}{kwhBydRounded} kWh
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Costo total</span>
@@ -2233,59 +2249,65 @@ function SeccionEnergia({
         {ultimoRecibo ? (
           recibosAnteriores.length > 0 ? (
             <div className="space-y-2 text-sm">
-              {recibosAnteriores.map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded-lg bg-white/[0.03] px-3 py-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-white/60 truncate">
-                        {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
-                      </p>
-                      <div className="mt-0.5 flex gap-3 text-[11px] text-white/30">
-                        <span>{r.kwh_bimestre} kWh</span>
-                        <span>{formatCurrency(r.costo_total_mxn)}</span>
-                        <span>Tarifa: {r.tarifa || "1C"}</span>
-                        <span>{r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
-                      </div>
-                      {getPeriodoAlerts(r).length > 0 && (
-                        <div className="mt-0.5 flex gap-1.5">
-                          {getPeriodoAlerts(r).map((a, i) => (
-                            <span key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</span>
-                          ))}
+              {recibosAnteriores.map((r) => {
+                const hByd = getBydKwhForPeriod(r, cargas);
+                return (
+                  <div
+                    key={r.id}
+                    className="rounded-lg bg-white/[0.03] px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white/60 truncate">
+                          {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
+                        </p>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/30">
+                          <span>Total: {r.kwh_bimestre} kWh</span>
+                          <span className="text-byd-400/80">
+                            {hByd.isManual ? "BYD: " : "BYD auto: "}{hByd.value} kWh
+                          </span>
+                          <span>{formatCurrency(r.costo_total_mxn)}</span>
+                          <span>Tarifa: {r.tarifa || "1C"}</span>
+                          <span>{r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
                         </div>
-                      )}
-                    </div>
-                    <div className="ml-2 flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onViewRecibo(r)}
-                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
-                        title="Ver detalle"
-                      >
-                        📋
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onEditRecibo(r)}
-                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteRecibo(r)}
-                        className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                        title="Eliminar"
-                      >
-                        🗑️
-                      </button>
+                        {getPeriodoAlerts(r).length > 0 && (
+                          <div className="mt-0.5 flex gap-1.5">
+                            {getPeriodoAlerts(r).map((a, i) => (
+                              <span key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="ml-2 flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onViewRecibo(r)}
+                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Ver detalle"
+                        >
+                          📋
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onEditRecibo(r)}
+                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Editar"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteRecibo(r)}
+                          className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          title="Eliminar"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-white/30">No hay más recibos registrados.</p>

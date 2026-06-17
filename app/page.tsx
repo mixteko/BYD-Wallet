@@ -5384,7 +5384,7 @@ export default function Home() {
                         {isFirst ? (
                           <p className="text-[9px] text-white/20">Primera recarga registrada</p>
                         ) : kmDelta !== null && kmDelta > 0 ? (
-                          <p className="text-[9px] text-byd-400/60">+{kmDelta.toLocaleString()} km</p>
+                          <p className="text-[9px] text-byd-400/60">Desde recarga anterior: {kmDelta.toLocaleString()} km</p>
                         ) : null}
                       </div>
                     </div>
@@ -5714,7 +5714,15 @@ export default function Home() {
 
       {/* ═══ Gasolina detail modal ═══ */}
       <Modal isOpen={!!gasolinaEnDetalle} onClose={() => setGasolinaEnDetalle(null)} title="⛽ Detalle de recarga">
-        {gasolinaEnDetalle && (
+        {gasolinaEnDetalle && (() => {
+          const idx = gasolinaList.findIndex((e) => e.id === gasolinaEnDetalle.id);
+          const prev = idx >= 0 ? gasolinaList[idx + 1] : undefined;
+          const kmDesdeAnterior = prev ? gasolinaEnDetalle.kilometraje - prev.kilometraje : null;
+          const rendimientoEntreRecargas =
+            kmDesdeAnterior != null && kmDesdeAnterior > 0 && gasolinaEnDetalle.litros > 0
+              ? kmDesdeAnterior / gasolinaEnDetalle.litros
+              : null;
+          return (
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
               <span className="text-white/40">Fecha</span>
@@ -5744,16 +5752,33 @@ export default function Home() {
               <span className="text-white/40">Odómetro</span>
               <span className="font-medium text-white/80">{gasolinaEnDetalle.kilometraje.toLocaleString()} km</span>
             </div>
-            {gasolinaEnDetalle.kilometraje > 0 && (
+            {kmDesdeAnterior != null && kmDesdeAnterior > 0 && (
               <div className="flex justify-between">
-                <span className="text-white/40">Rendimiento</span>
-                <span className="font-medium text-white/80">
-                  {((gasolinaEnDetalle.kilometraje || 0) / (gasolinaEnDetalle.litros || 1)).toFixed(1)} km/L
-                </span>
+                <span className="text-white/40">Km desde recarga anterior</span>
+                <span className="font-medium text-white/80">{kmDesdeAnterior.toLocaleString()} km</span>
+              </div>
+            )}
+            {rendimientoEntreRecargas != null && (
+              <div>
+                <div className="flex justify-between">
+                  <span className="text-white/40">Rendimiento calculado entre recargas</span>
+                  <span className="font-medium text-white/80">
+                    {rendimientoEntreRecargas.toFixed(1)} km/L
+                  </span>
+                </div>
+                <p className="mt-1 text-right text-[10px] text-white/30">
+                  Se calcula con los km recorridos desde la recarga anterior ÷ litros cargados.
+                </p>
+                {rendimientoEntreRecargas > 100 && (
+                  <p className="mt-1 text-right text-[10px] text-amber-400/70">
+                    Valor alto por uso combinado EV + gasolina.
+                  </p>
+                )}
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* ═══ Editar gasolina modal ═══ */}

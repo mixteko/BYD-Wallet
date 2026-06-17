@@ -2942,11 +2942,14 @@ function RegistrarServicioForm({
 }
 
 // ── KpiChip ───────────────────────────────────────────────────────────────
-function KpiChip({ label, value, sub, color, colorHex }: {
-  label: string; value: string; sub?: string; color?: string; colorHex?: string;
+function KpiChip({ label, value, sub, color, colorHex, title }: {
+  label: string; value: string; sub?: string; color?: string; colorHex?: string; title?: string;
 }) {
   return (
-    <div className="flex min-h-[52px] flex-col justify-center rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-1.5">
+    <div
+      className="flex min-h-[52px] flex-col justify-center rounded-xl border border-white/5 bg-white/[0.025] px-2.5 py-1.5"
+      title={title}
+    >
       <p className="mb-0.5 truncate text-[9px] font-medium uppercase leading-none tracking-wider text-white/30">{label}</p>
       <p className={`truncate text-[11px] font-bold leading-tight ${color || "text-white/75"}`}
          style={colorHex ? { color: colorHex } : {}}>
@@ -3109,6 +3112,90 @@ function getGastoElectricoBydAnual(periodos: PeriodoElectricoRow[], cargas: Carg
       return s + c.costo;
     }, 0) * 100,
   ) / 100;
+}
+
+function computeKmRecorridosDesdeGasolina(gasolinaList: GasolinaEntry[], odometroActual: number): number {
+  const odometros = gasolinaList.map((e) => e.kilometraje).filter((k) => k > 0);
+  const odometroInicial = odometros.length > 0 ? Math.min(...odometros) : 0;
+  return odometroActual > odometroInicial ? odometroActual - odometroInicial : 0;
+}
+
+function sumGastoEnAnio(rows: DashboardGastoRow[], year: number): number {
+  return Math.round(
+    rows.reduce((s, e) => {
+      const d = normalizeDate(e.fecha);
+      if (!d || d.getFullYear() !== year) return s;
+      return s + e.costo;
+    }, 0) * 100,
+  ) / 100;
+}
+
+function computeGastoAnualIntegrado(
+  gasolinaList: GasolinaEntry[],
+  periodosElectricos: PeriodoElectricoRow[],
+  cargasList: CargaEntry[],
+  mantenimientoRows: DashboardGastoRow[],
+  otrosRows: DashboardGastoRow[],
+): number {
+  const year = new Date().getFullYear();
+  const gasolinaAnual = sumGastoEnAnio(
+    gasolinaList.map((e) => ({ fecha: e.fecha, costo: e.costo })),
+    year,
+  );
+  const electricoAnual = getGastoElectricoBydAnual(periodosElectricos, cargasList);
+  const mantAnual = sumGastoEnAnio(mantenimientoRows, year);
+  const otrosAnual = sumGastoEnAnio(otrosRows, year);
+  return Math.round((gasolinaAnual + electricoAnual + mantAnual + otrosAnual) * 100) / 100;
+}
+
+function computeTotalInvertidoIntegrado(
+  gastoGasolina: number,
+  gastoElectrico: number,
+  mantenimientoRows: DashboardGastoRow[],
+  otrosRows: DashboardGastoRow[],
+): number {
+  const totalMant = Math.round(mantenimientoRows.reduce((s, e) => s + e.costo, 0) * 100) / 100;
+  const totalOtros = Math.round(otrosRows.reduce((s, e) => s + e.costo, 0) * 100) / 100;
+  return Math.round((gastoGasolina + gastoElectrico + totalMant + totalOtros) * 100) / 100;
+}
+
+function computeCostoPorKmIntegrado(totalInvertido: number, kmRecorridos: number): number {
+  return kmRecorridos > 0 ? Math.round((totalInvertido / kmRecorridos) * 100) / 100 : 0;
+}
+
+function formatCostoPorKm(n: number): string {
+  return `$${n.toFixed(2)}/km`;
+}
+
+function formatTarifaKwh(rate: number | null | undefined): string {
+  if (rate == null || rate <= 0) return "Sin dato";
+  return `$${rate.toFixed(2)}/kWh`;
+}
+
+function getTarifaPromedioByd(
+  totalGasto: number,
+  totalKwh: number,
+  tarifaRecibo: number | null,
+): number | null {
+  if (totalKwh > 0 && totalGasto > 0) {
+    return Math.round((totalGasto / totalKwh) * 100) / 100;
+  }
+  if (tarifaRecibo != null && tarifaRecibo > 0) {
+    return Math.round(tarifaRecibo * 100) / 100;
+  }
+  return null;
+}
+
+function getTotalKwhBydUnificado(
+  periodosElectricos: PeriodoElectricoRow[],
+  cargasList: CargaEntry[],
+): number {
+  if (hasCentroEnergiaConfigurado(periodosElectricos)) {
+    return Math.round(
+      periodosElectricos.reduce((s, p) => s + getBydKwhForPeriod(p, cargasList).value, 0) * 10,
+    ) / 10;
+  }
+  return Math.round(cargasList.reduce((s, c) => s + c.kwhCargados, 0) * 10) / 10;
 }
 
 interface EficienciaCostosStats {
@@ -3436,13 +3523,13 @@ function SeccionDashboard({
   otrosRows: DashboardGastoRow[];
   onNavigate: (s: Section) => void;
 }) {
-  // ── Integrated spend ──────────────────────────────────────────────────
-  const totalOficial = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
-  const totalOtros   = otrosCostosList.reduce((s, e) => s + e.costo, 0);
+  // ── Integrated spend (misma fuente en todos los KPIs del Dashboard) ──
+  const totalOficial = Math.round(mantenimientoRows.reduce((s, e) => s + e.costo, 0) * 100) / 100;
+  const totalOtros   = Math.round(otrosRows.reduce((s, e) => s + e.costo, 0) * 100) / 100;
   const totalElec    = getTotalGastoElectricoByd(periodosElectricos, cargasList);
   const totalIntegrado = gastoGasolina + totalElec + totalOficial + totalOtros;
-  const costoPorKmGlobal =
-    odometroActual > 0 ? Math.round((totalIntegrado / odometroActual) * 100) / 100 : 0;
+  const kmRecorridos = computeKmRecorridosDesdeGasolina(gasolinaList, odometroActual);
+  const costoPorKmGlobal = computeCostoPorKmIntegrado(totalIntegrado, kmRecorridos);
 
   // ── Próximo mantenimiento ─────────────────────────────────────────────
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
@@ -3474,7 +3561,7 @@ function SeccionDashboard({
   // ── Gasolina summary ─────────────────────────────────────────────────
   const ultimaRecarga = gasolinaList[0] ?? null;
   const costoPorKmGasolina =
-    odometroActual > 0 ? Math.round((gastoGasolina / odometroActual) * 100) / 100 : 0;
+    kmRecorridos > 0 ? Math.round((gastoGasolina / kmRecorridos) * 100) / 100 : 0;
   const deltaKms = gasolinaList
     .slice(0, -1)
     .map((e, i) => e.kilometraje - gasolinaList[i + 1].kilometraje)
@@ -3486,11 +3573,14 @@ function SeccionDashboard({
   // ── Electricidad summary (alineado con Centro de Energía) ───────────────
   const ultimoRecibo = getUltimoReciboElectrico(periodosElectricos);
   const energiaCostos = getCentroEnergiaCostos(ultimoRecibo, cargasList);
-  const totalKwhByd = periodosElectricos.reduce(
-    (s, p) => s + getBydKwhForPeriod(p, cargasList).value, 0,
-  );
+  const totalKwhByd = getTotalKwhBydUnificado(periodosElectricos, cargasList);
   const tarifaRecibo = energiaCostos?.costoKwh ?? null;
-  const gastoBydMensual = energiaCostos?.costoByd ?? null;
+  const tarifaPromedioByd = getTarifaPromedioByd(totalElec, totalKwhByd, tarifaRecibo);
+  const gastoBydMensual = getGastoElectricoByMes(
+    periodosElectricos,
+    cargasList,
+    monthKeyLocal(new Date()),
+  );
   const gastoCasaMensual = energiaCostos?.costoCasa ?? null;
   const gastoAnualByd = getGastoElectricoBydAnual(periodosElectricos, cargasList);
 
@@ -3541,7 +3631,7 @@ function SeccionDashboard({
                 {[
                   { icon: "⛽", label: "Costo por km (gasolina)", val: `$${costoPorKmGasolina.toFixed(2)}` },
                   { icon: "⚡", label: "Costo por km (eléctrico)", val: tarifaRecibo != null ? `$${(tarifaRecibo * 0.174).toFixed(2)}` : "—" },
-                  { icon: "📊", label: "Costo por km (total)",    val: `$${costoPorKmGlobal.toFixed(2)}` },
+                  { icon: "📊", label: "Costo por km (total)",    val: formatCostoPorKm(costoPorKmGlobal) },
                   { icon: "📅", label: "Gasto diario promedio",  val: formatCurrency(Math.round(totalIntegrado / 365)) },
                   { icon: "📅", label: "Gasto mensual promedio", val: formatCurrency(Math.round(totalIntegrado / 12)) },
                   { icon: "📋", label: "Última carga de gasolina", val: ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—" },
@@ -3612,7 +3702,7 @@ function SeccionDashboard({
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
               <div><p className="text-white/25 leading-tight">Total litros</p><p className="font-semibold text-white/70">{totalLitros.toFixed(0)} L</p></div>
               <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(gastoGasolina)}</p></div>
-              <div><p className="text-white/25 leading-tight">Rendimiento</p><p className="font-semibold text-white/70">{rendimientoKmL} km/L</p></div>
+              <div><p className="text-white/25 leading-tight">Rendimiento</p><p className="font-semibold text-white/70">{rendimientoKmL.toFixed(2)} km/L</p></div>
               <div><p className="text-white/25 leading-tight">Última carga</p><p className="font-semibold text-white/70 truncate">{ultimaRecarga ? formatDateShort(ultimaRecarga.fecha) : "—"}</p></div>
               <div><p className="text-white/25 leading-tight">Promedio km por tanque</p><p className="font-semibold text-white/70">{avgKmRecarga > 0 ? avgKmRecarga.toLocaleString() : "—"}</p></div>
               <div><p className="text-white/25 leading-tight">Costo por km</p><p className="font-semibold text-white/70">${costoPorKmGasolina.toFixed(2)}</p></div>
@@ -3627,12 +3717,12 @@ function SeccionDashboard({
               <span className="text-[9px] text-byd-400/50">Ver detalle →</span>
             </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 text-[10px]">
-              <div><p className="text-white/25 leading-tight">Consumo BYD (kWh)</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(0)}</p></div>
+              <div><p className="text-white/25 leading-tight">Consumo BYD (kWh)</p><p className="font-semibold text-white/70">{totalKwhByd.toFixed(1)}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto acumulado</p><p className="font-semibold text-white/70">{formatCurrency(totalElec)}</p></div>
-              <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{tarifaRecibo != null ? `$${tarifaRecibo.toFixed(4)}/kWh` : "Sin dato"}</p></div>
-              <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{gastoBydMensual != null ? formatCurrency(gastoBydMensual) : "Sin dato"}</p></div>
+              <div><p className="text-white/25 leading-tight">Tarifa promedio</p><p className="font-semibold text-white/70">{formatTarifaKwh(tarifaPromedioByd)}</p></div>
+              <div><p className="text-white/25 leading-tight">Costo mensual de carga del BYD</p><p className="font-semibold text-white/70">{gastoBydMensual > 0 ? formatCurrency(gastoBydMensual) : "Sin dato"}</p></div>
               <div><p className="text-white/25 leading-tight">Gasto mensual de tu vivienda</p><p className="font-semibold text-white/70">{gastoCasaMensual != null ? formatCurrency(gastoCasaMensual) : "Sin dato"}</p></div>
-              <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(Math.round(gastoAnualByd * 100) / 100)}</p></div>
+              <div><p className="text-white/25 leading-tight">Gasto acumulado anual</p><p className="font-semibold text-white/70">{formatCurrency(gastoAnualByd)}</p></div>
             </div>
           </button>
 
@@ -5679,6 +5769,37 @@ export default function Home() {
     [periodosElectricos, cargasList],
   );
 
+  const kmRecorridosDashboard = useMemo(
+    () => computeKmRecorridosDesdeGasolina(gasolinaList, kpis.odometroActual),
+    [gasolinaList, kpis.odometroActual],
+  );
+
+  const totalInvertidoDashboard = useMemo(
+    () => computeTotalInvertidoIntegrado(
+      gastoGasolinaTotal,
+      gastoElectricoResuelto.total,
+      dashboardMantenimientoRows,
+      dashboardOtrosRows,
+    ),
+    [gastoGasolinaTotal, gastoElectricoResuelto.total, dashboardMantenimientoRows, dashboardOtrosRows],
+  );
+
+  const gastoAnualIntegrado = useMemo(
+    () => computeGastoAnualIntegrado(
+      gasolinaList,
+      periodosElectricos,
+      cargasList,
+      dashboardMantenimientoRows,
+      dashboardOtrosRows,
+    ),
+    [gasolinaList, periodosElectricos, cargasList, dashboardMantenimientoRows, dashboardOtrosRows],
+  );
+
+  const costoPorKmIntegrado = useMemo(
+    () => computeCostoPorKmIntegrado(totalInvertidoDashboard, kmRecorridosDashboard),
+    [totalInvertidoDashboard, kmRecorridosDashboard],
+  );
+
   // ── Global health/próximo computation (for top KPI chips) ─────────────
   const proximoServicioGlobal = BYD_KING_SERVICIOS.find((s) => s.km > kpis.odometroActual) ?? null;
   const kmRestantesGlobal = proximoServicioGlobal ? proximoServicioGlobal.km - kpis.odometroActual : 0;
@@ -5983,8 +6104,18 @@ export default function Home() {
 
         {/* 6-chip global KPI row */}
         <section className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-          <KpiChip label="Gasto anual" value={formatCurrency(kpis.gastoAnual)} sub="Total del año" color="text-byd-400" />
-          <KpiChip label="Costo por km" value={`$${kpis.costoPorKm}`} sub="Promedio global" />
+          <KpiChip
+            label="Gasto anual"
+            value={formatCurrency(gastoAnualIntegrado)}
+            sub="Gasolina + electricidad + mantenimiento + otros"
+            color="text-byd-400"
+          />
+          <KpiChip
+            label="Costo por km"
+            value={formatCostoPorKm(costoPorKmIntegrado)}
+            sub="Promedio global"
+            title="Costo promedio real considerando todos los gastos registrados del vehículo."
+          />
           <KpiChip label="Odómetro" value={`${kpis.odometroActual.toLocaleString()} km`} sub="Lectura actual" />
           <KpiChip label="Salud del vehículo" value={`${healthScoreGlobal}`} sub={healthLabelGlobal} colorHex={healthColorGlobal} />
           <KpiChip label="Próximo servicio" value={proximoServicioGlobal ? `${proximoServicioGlobal.km.toLocaleString()} km` : "Completado"} sub={kmRestantesGlobal > 0 ? `${kmRestantesGlobal.toLocaleString()} km restantes` : estadoServicioGlobal} color={statusGlobal.color} />
@@ -5994,7 +6125,7 @@ export default function Home() {
             sub={
               gastoElectricoResuelto.source === "centro_energia"
                 ? (tarifaKwhGlobal != null
-                  ? `Centro de Energía · $${tarifaKwhGlobal.toFixed(4)}/kWh`
+                  ? `Centro de Energía · ${formatTarifaKwh(Math.round(tarifaKwhGlobal * 100) / 100)}`
                   : "Centro de Energía · acumulado BYD")
                 : "Suma de cargas EV registradas"
             }

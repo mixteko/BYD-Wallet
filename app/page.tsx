@@ -5,10 +5,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend,
 } from "recharts";
-import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
+import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.0";
+const APP_VERSION = "0.5.3.1";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -36,9 +36,16 @@ interface MantenimientoEntry {
   id: string;
   fecha: string;
   servicio: string;
-  km: number;
-  costo: number;
+  km: number;               // odómetro al realizar
+  costo: number;            // alias of costoReal for backward compat
   estado: "completado" | "pendiente";
+  // v0.5.3.1 extended fields
+  kmProgramado?: number;
+  mesesProgramado?: number;
+  costoEstimado?: number;
+  costoReal?: number;
+  agencia?: string;
+  notas?: string;
 }
 
 interface VehicleSettings {
@@ -389,6 +396,45 @@ async function deletePeriodoElectrico(id: number): Promise<boolean> {
   const { error } = await sb.from("periodos_electricos").delete().eq("id", id);
   if (error) {
     console.error("[BYD Wallet] Error al eliminar periodo eléctrico:", error.message);
+    return false;
+  }
+  return true;
+}
+
+// ── Supabase: maintenance_records ────────────────────────────────────────────
+async function insertMaintenanceRecord(
+  row: Omit<MaintenanceRecordRow, "id" | "created_at">
+): Promise<number | null> {
+  const sb = getSupabaseClient();
+  if (!sb) return null;
+  const { data, error } = await sb.from("maintenance_records").insert(row as never).select("id").single();
+  if (error) {
+    console.error("[BYD Wallet] Error al insertar maintenance_record:", error.message);
+    return null;
+  }
+  return (data as { id: number } | null)?.id ?? null;
+}
+
+async function updateMaintenanceRecord(
+  id: number,
+  row: Partial<Omit<MaintenanceRecordRow, "id" | "created_at">>
+): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb) return false;
+  const { error } = await sb.from("maintenance_records").update(row as never).eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al actualizar maintenance_record:", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function deleteMaintenanceRecord(id: number): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb) return false;
+  const { error } = await sb.from("maintenance_records").delete().eq("id", id);
+  if (error) {
+    console.error("[BYD Wallet] Error al eliminar maintenance_record:", error.message);
     return false;
   }
   return true;
@@ -1958,22 +2004,102 @@ function getMantenimientoStatus(kmRestantes: number): {
   dot: string;
 } {
   if (kmRestantes <= 0)
-    return { color: "text-red-400",    bg: "bg-red-500/15",    dot: "bg-red-400",    label: "Vencido" };
+    return { color: "text-red-400",   bg: "bg-red-500/15",   dot: "bg-red-400",   label: "Vencido" };
   if (kmRestantes <= 500)
-    return { color: "text-orange-400", bg: "bg-orange-500/15", dot: "bg-orange-400", label: "Urgente" };
+    return { color: "text-red-400",   bg: "bg-red-500/15",   dot: "bg-red-400",   label: "Urgente" };
   if (kmRestantes <= 2000)
-    return { color: "text-amber-400",  bg: "bg-amber-500/15",  dot: "bg-amber-400",  label: "Próximo" };
-  return   { color: "text-green-400",  bg: "bg-green-500/15",  dot: "bg-green-400",  label: "Al día" };
+    return { color: "text-amber-400", bg: "bg-amber-500/15", dot: "bg-amber-400", label: "Próximo" };
+  return   { color: "text-green-400", bg: "bg-green-500/15", dot: "bg-green-400", label: "Al día" };
 }
 
+// ── RegistrarServicioForm ──────────────────────────────────────────────────
+function RegistrarServicioForm({
+  initialKm,
+  initialData,
+  onSave,
+}: {
+  initialKm: number;
+  initialData?: MantenimientoEntry;
+  onSave: (entry: MantenimientoEntry) => void;
+}) {
+  const sched = BYD_KING_SERVICIOS.find((s) => s.km === initialKm) ?? BYD_KING_SERVICIOS[0];
+  const isEdit = !!initialData;
+
+  const [fecha, setFecha] = useState(initialData?.fecha ?? new Date().toISOString().slice(0, 10));
+  const [odometro, setOdometro] = useState(String(initialData?.km ?? initialKm));
+  const [costoReal, setCostoReal] = useState(String(initialData?.costoReal ?? initialData?.costo ?? ""));
+  const [agencia, setAgencia] = useState(initialData?.agencia ?? "");
+  const [notas, setNotas] = useState(initialData?.notas ?? "");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const odo = parseInt(odometro);
+    const costo = parseFloat(costoReal);
+    if (!fecha) { setError("La fecha es requerida."); return; }
+    if (isNaN(odo) || odo <= 0) { setError("El odómetro debe ser mayor a 0."); return; }
+    if (isNaN(costo) || costo < 0) { setError("El costo real no puede ser negativo."); return; }
+
+    const entry: MantenimientoEntry = {
+      id: initialData?.id ?? String(Date.now()),
+      fecha,
+      servicio: `Servicio ${sched.km.toLocaleString()} km`,
+      km: odo,
+      costo: costo,
+      estado: "completado",
+      kmProgramado: sched.km,
+      mesesProgramado: sched.meses,
+      costoEstimado: sched.costo,
+      costoReal: costo,
+      agencia: agencia.trim() || undefined,
+      notas: notas.trim() || undefined,
+    };
+    onSave(entry);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-lg bg-white/[0.03] px-3 py-2">
+          <p className="text-[10px] text-white/35">Servicio programado</p>
+          <p className="font-medium text-white/70">{sched.km.toLocaleString()} km / {sched.meses} meses</p>
+        </div>
+        <div className="rounded-lg bg-white/[0.03] px-3 py-2">
+          <p className="text-[10px] text-white/35">Costo estimado</p>
+          <p className="font-medium text-white/70">{formatCurrency(sched.costo)}</p>
+        </div>
+      </div>
+      <InputField label="Fecha realizada" type="date" value={fecha} onChange={setFecha} required />
+      <InputField label="Odómetro realizado (km)" type="number" value={odometro} onChange={setOdometro} required />
+      <InputField label="Costo real ($)" type="number" step="0.01" min="0" value={costoReal} onChange={setCostoReal} required />
+      <InputField label="Agencia / Taller" type="text" value={agencia} onChange={setAgencia} />
+      <InputField label="Notas" type="text" value={notas} onChange={setNotas} />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button
+        type="submit"
+        className="w-full rounded-xl bg-byd-500 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-byd-400"
+      >
+        {isEdit ? "Guardar cambios" : "Registrar servicio"}
+      </button>
+    </form>
+  );
+}
+
+// ── SeccionMantenimiento ───────────────────────────────────────────────────
 function SeccionMantenimiento({
   odometroActual,
   mantenimientoList,
+  onRegistrar,
+  onEdit,
+  onDelete,
 }: {
   odometroActual: number;
   mantenimientoList: MantenimientoEntry[];
+  onRegistrar: (km: number) => void;
+  onEdit: (entry: MantenimientoEntry) => void;
+  onDelete: (entry: MantenimientoEntry) => void;
 }) {
-  // Find next service milestone above current odometer
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
   const anterior = proximo
     ? (BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null)
@@ -1983,20 +2109,56 @@ function SeccionMantenimiento({
   const rangeKm = proximo && anterior ? proximo.km - anterior.km : proximo ? proximo.km : 15000;
   const kmFromLast = proximo && anterior ? odometroActual - anterior.km : odometroActual;
   const progressPct = Math.min(100, Math.round((kmFromLast / rangeKm) * 100));
-
   const status = getMantenimientoStatus(kmRestantes);
+
+  // KPI calculations
+  const totalGastado = mantenimientoList.reduce((s, e) => s + (e.costoReal ?? e.costo), 0);
+  const totalEstimado = mantenimientoList.reduce((s, e) => s + (e.costoEstimado ?? e.costo), 0);
+  const diffCosto = totalGastado - totalEstimado;
+  const maxOdo = mantenimientoList.length > 0 ? Math.max(...mantenimientoList.map((e) => e.km)) : 0;
+  const costoPorKm = maxOdo > 0 ? Math.round((totalGastado / maxOdo) * 100) / 100 : 0;
 
   return (
     <div className="space-y-4">
+
+      {/* ── KPIs ── */}
+      {mantenimientoList.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+            <p className="text-[10px] text-white/35">Total gastado</p>
+            <p className="mt-0.5 font-semibold text-white/80">{formatCurrency(totalGastado)}</p>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+            <p className="text-[10px] text-white/35">Dif. estimado vs real</p>
+            <p className={`mt-0.5 font-semibold ${diffCosto > 0 ? "text-red-400" : "text-green-400"}`}>
+              {diffCosto > 0 ? "+" : ""}{formatCurrency(diffCosto)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+            <p className="text-[10px] text-white/35">Costo / km</p>
+            <p className="mt-0.5 font-semibold text-white/80">${costoPorKm.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+
       {/* ── Próximo servicio ── */}
       {proximo ? (
         <div className={`rounded-xl border border-white/5 p-4 sm:p-5 ${status.bg}`}>
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white/80">🔧 Próximo mantenimiento</h3>
-            <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${status.color} ${status.bg} border border-white/5`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-              {status.label}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`flex items-center gap-1.5 rounded-full border border-white/5 px-2.5 py-0.5 text-[11px] font-medium ${status.color} ${status.bg}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+                {status.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRegistrar(proximo.km)}
+                className="rounded-lg border border-byd-500/30 bg-byd-500/10 px-2.5 py-1 text-[11px] font-medium text-byd-400 transition-colors hover:bg-byd-500/20"
+              >
+                + Registrar servicio
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
             <div>
@@ -2018,7 +2180,6 @@ function SeccionMantenimiento({
               <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
             </div>
           </div>
-          {/* Progress bar */}
           <div className="mt-4">
             <div className="mb-1 flex justify-between text-[10px] text-white/30">
               <span>{anterior ? anterior.km.toLocaleString() : "0"} km</span>
@@ -2028,7 +2189,7 @@ function SeccionMantenimiento({
             <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  kmRestantes <= 0 ? "bg-red-400" : kmRestantes <= 500 ? "bg-orange-400" : kmRestantes <= 2000 ? "bg-amber-400" : "bg-green-400"
+                  kmRestantes <= 500 ? "bg-red-400" : kmRestantes <= 2000 ? "bg-amber-400" : "bg-green-400"
                 }`}
                 style={{ width: `${progressPct}%` }}
               />
@@ -2052,21 +2213,23 @@ function SeccionMantenimiento({
               <div
                 key={s.km}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                  isCurrent
-                    ? "border border-white/10 bg-white/[0.05]"
-                    : done
-                    ? "opacity-40"
-                    : "opacity-70"
+                  isCurrent ? "border border-white/10 bg-white/[0.05]" : done ? "opacity-40" : "opacity-70"
                 }`}
               >
                 <span className={`h-2 w-2 shrink-0 rounded-full ${done ? "bg-green-400" : isCurrent ? status.dot : "bg-white/20"}`} />
-                <span className="w-28 shrink-0 font-medium text-white/70">
-                  {s.km.toLocaleString()} km
-                </span>
+                <span className="w-28 shrink-0 font-medium text-white/70">{s.km.toLocaleString()} km</span>
                 <span className="text-[11px] text-white/30">{s.meses} meses</span>
                 <span className="ml-auto text-[11px] font-medium text-white/60">{formatCurrency(s.costo)}</span>
                 {done && <span className="text-[10px] text-green-400/70">✓</span>}
-                {isCurrent && <span className={`text-[10px] font-medium ${status.color}`}>← próximo</span>}
+                {isCurrent && (
+                  <button
+                    type="button"
+                    onClick={() => onRegistrar(s.km)}
+                    className="rounded border border-byd-500/30 bg-byd-500/10 px-1.5 py-0.5 text-[10px] text-byd-400 hover:bg-byd-500/20"
+                  >
+                    + Registrar
+                  </button>
+                )}
               </div>
             );
           })}
@@ -2083,29 +2246,62 @@ function SeccionMantenimiento({
           <span className="text-[11px] text-white/30">{mantenimientoList.length} registros</span>
         </div>
         {mantenimientoList.length > 0 ? (
-          <div className="space-y-1.5">
-            {mantenimientoList.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-sm">🔧</div>
-                  <div>
-                    <p className="font-medium text-white/70">{entry.servicio}</p>
-                    <p className="text-[11px] text-white/30">
-                      {formatDate(entry.fecha)} · {entry.km.toLocaleString()} km
-                    </p>
+          <div className="space-y-2">
+            {mantenimientoList.map((entry) => {
+              const real = entry.costoReal ?? entry.costo;
+              const est = entry.costoEstimado ?? entry.costo;
+              const diff = real - est;
+              return (
+                <div key={entry.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-white/80">{entry.servicio}</p>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/35">
+                        <span>{formatDate(entry.fecha)}</span>
+                        <span>{entry.km.toLocaleString()} km</span>
+                        {entry.agencia && <span>🏪 {entry.agencia}</span>}
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px]">
+                        <div>
+                          <p className="text-white/25">Estimado</p>
+                          <p className="font-medium text-white/50">{formatCurrency(est)}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/25">Real</p>
+                          <p className="font-medium text-white/80">{formatCurrency(real)}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/25">Diferencia</p>
+                          <p className={`font-medium ${diff > 0 ? "text-red-400" : "text-green-400"}`}>
+                            {diff > 0 ? "+" : ""}{formatCurrency(diff)}
+                          </p>
+                        </div>
+                      </div>
+                      {entry.notas && (
+                        <p className="mt-1 text-[10px] text-white/25 italic">{entry.notas}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <Tag variant="green">Completado</Tag>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onEdit(entry)}
+                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                          title="Editar"
+                        >✏️</button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(entry)}
+                          className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          title="Eliminar"
+                        >🗑️</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold text-white/60">{formatCurrency(entry.costo)}</p>
-                  <Tag variant={entry.estado === "completado" ? "green" : "amber"}>
-                    {entry.estado === "completado" ? "Completado" : "Pendiente"}
-                  </Tag>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="py-6 text-center text-sm text-white/30">No hay registros de mantenimiento aún.</p>
@@ -2740,6 +2936,9 @@ export default function Home() {
   const [editingGasolina, setEditingGasolina] = useState<GasolinaEntry | null>(null);
   const [deletingGasolina, setDeletingGasolina] = useState<GasolinaEntry | null>(null);
   const [gasolinaEnDetalle, setGasolinaEnDetalle] = useState<GasolinaEntry | null>(null);
+  const [registrarServicioKm, setRegistrarServicioKm] = useState<number | null>(null);
+  const [editingMantenimiento, setEditingMantenimiento] = useState<MantenimientoEntry | null>(null);
+  const [deletingMantenimiento, setDeletingMantenimiento] = useState<MantenimientoEntry | null>(null);
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -2871,6 +3070,38 @@ export default function Home() {
   const handleDeleteGasolina = useCallback(function (id: string) {
     const list = loadData<GasolinaEntry[]>(KEYS.gasolina, []);
     saveData(KEYS.gasolina, list.filter((e) => e.id !== id));
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleSaveMantenimiento = useCallback(function (entry: MantenimientoEntry) {
+    const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+    const exists = list.find((e) => e.id === entry.id);
+    if (exists) {
+      saveData(KEYS.mantenimiento, list.map((e) => (e.id === entry.id ? entry : e)));
+    } else {
+      saveData(KEYS.mantenimiento, [...list, entry]);
+      // Fire-and-forget Supabase insert
+      insertMaintenanceRecord({
+        km_programado: entry.kmProgramado ?? 0,
+        meses_programado: entry.mesesProgramado ?? 0,
+        costo_estimado: entry.costoEstimado ?? entry.costo,
+        fecha_realizada: entry.fecha,
+        odometro_realizado: entry.km,
+        costo_real: entry.costoReal ?? entry.costo,
+        agencia: entry.agencia ?? null,
+        notas: entry.notas ?? null,
+        estado: entry.estado,
+      }).catch(() => {});
+    }
+    setRegistrarServicioKm(null);
+    setEditingMantenimiento(null);
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleDeleteMantenimiento = useCallback(function (id: string) {
+    const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+    saveData(KEYS.mantenimiento, list.filter((e) => e.id !== id));
+    setDeletingMantenimiento(null);
     setKpiVersion((v) => v + 1);
   }, []);
 
@@ -3146,6 +3377,9 @@ export default function Home() {
             <SeccionMantenimiento
               odometroActual={kpis.odometroActual}
               mantenimientoList={mantenimientoList}
+              onRegistrar={(km) => setRegistrarServicioKm(km)}
+              onEdit={(entry) => setEditingMantenimiento(entry)}
+              onDelete={(entry) => setDeletingMantenimiento(entry)}
             />
           )}
 
@@ -3219,6 +3453,44 @@ export default function Home() {
           onClose={() => setFormModal(null)}
         />
       </Modal>
+
+      {/* ── Registrar servicio modal ── */}
+      <Modal
+        isOpen={registrarServicioKm !== null}
+        onClose={() => setRegistrarServicioKm(null)}
+        title="🔧 Registrar servicio"
+      >
+        {registrarServicioKm !== null && (
+          <RegistrarServicioForm
+            initialKm={registrarServicioKm}
+            onSave={handleSaveMantenimiento}
+          />
+        )}
+      </Modal>
+
+      {/* ── Editar mantenimiento modal ── */}
+      <Modal
+        isOpen={editingMantenimiento !== null}
+        onClose={() => setEditingMantenimiento(null)}
+        title="✏️ Editar servicio"
+      >
+        {editingMantenimiento !== null && (
+          <RegistrarServicioForm
+            initialKm={editingMantenimiento.kmProgramado ?? editingMantenimiento.km}
+            initialData={editingMantenimiento}
+            onSave={handleSaveMantenimiento}
+          />
+        )}
+      </Modal>
+
+      {/* ── Eliminar mantenimiento confirm ── */}
+      <ConfirmDialog
+        isOpen={deletingMantenimiento !== null}
+        title="Eliminar servicio"
+        message={`¿Eliminar "${deletingMantenimiento?.servicio}"? Esta acción no se puede deshacer.`}
+        onConfirm={() => deletingMantenimiento && handleDeleteMantenimiento(deletingMantenimiento.id)}
+        onCancel={() => setDeletingMantenimiento(null)}
+      />
 
       <Modal isOpen={formModal === "ticket"} onClose={() => setFormModal(null)} title="Agregar ticket">
         <TicketForm

@@ -47,6 +47,20 @@ export interface PeriodoElectricoRow {
   created_at: string | null;
 }
 
+export interface MaintenanceRecordRow {
+  id?: number;
+  km_programado: number;
+  meses_programado: number;
+  costo_estimado: number;
+  fecha_realizada: string;
+  odometro_realizado: number;
+  costo_real: number;
+  agencia: string | null;
+  notas: string | null;
+  estado: string;
+  created_at?: string | null;
+}
+
 // ── Client — lazy singleton ──────────────────────────────────────────────
 
 let client: ReturnType<typeof createClient> | null = null;

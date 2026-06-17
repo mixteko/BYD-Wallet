@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend,
@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.3";
+const APP_VERSION = "0.5.3.5";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -54,6 +54,12 @@ interface MantenimientoEntry {
   notas?: string;
   // v0.5.3.2 checklist
   checklist?: ChecklistItemState[];
+  // v0.5.3.4 adjunto
+  adjunto?: {
+    nombre: string;
+    tipo: string;   // MIME type
+    data: string;   // base64 data URL
+  };
 }
 
 interface VehicleSettings {
@@ -2086,6 +2092,24 @@ function RegistrarServicioForm({
     }))
   );
 
+  const [adjunto, setAdjunto] = useState<MantenimientoEntry["adjunto"]>(initialData?.adjunto ?? undefined);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      setError("El archivo no debe superar 4 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAdjunto({ nombre: file.name, tipo: file.type, data: reader.result as string });
+      setError("");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
   function toggleItem(id: string) {
     setChecklist((prev) =>
       prev.map((c) => (c.id === id ? { ...c, realizado: !c.realizado } : c))
@@ -2123,6 +2147,7 @@ function RegistrarServicioForm({
       agencia: agencia.trim() || undefined,
       notas: notas.trim() || undefined,
       checklist: checklist.map((c) => ({ ...c, nota: c.nota?.trim() || undefined })),
+      adjunto,
     };
     onSave(entry);
   }
@@ -2148,6 +2173,38 @@ function RegistrarServicioForm({
           <InputField label="Costo real ($)" type="number" step="0.01" min="0" value={costoReal} onChange={setCostoReal} required />
           <InputField label="Agencia / Taller" type="text" value={agencia} onChange={setAgencia} />
           <InputField label="Notas generales" type="text" value={notas} onChange={setNotas} />
+
+          {/* Adjunto */}
+          <div>
+            <p className="mb-1 text-[11px] font-medium text-white/40">Adjunto (foto, PDF, factura)</p>
+            {adjunto ? (
+              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{adjunto.tipo.startsWith("image/") ? "🖼️" : "📄"}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-white/60">{adjunto.nombre}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAdjunto(undefined)}
+                    className="shrink-0 text-[10px] text-red-400/50 hover:text-red-400"
+                  >✕</button>
+                </div>
+                {adjunto.tipo.startsWith("image/") && (
+                  <img src={adjunto.data} alt="preview" className="mt-2 max-h-24 w-full rounded object-cover opacity-70" />
+                )}
+              </div>
+            ) : (
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-3 py-2.5 text-[11px] text-white/30 transition-colors hover:border-white/20 hover:text-white/50">
+                <span>📎</span>
+                <span>Seleccionar archivo…</span>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </label>
+            )}
+          </div>
         </div>
 
         {/* Right: checklist — grows to fill remaining space */}
@@ -2245,14 +2302,53 @@ function SeccionMantenimiento({
   onRegistrar,
   onEdit,
   onDelete,
+  onUpdateAdjunto,
 }: {
   odometroActual: number;
   mantenimientoList: MantenimientoEntry[];
   onRegistrar: (km: number) => void;
   onEdit: (entry: MantenimientoEntry) => void;
   onDelete: (entry: MantenimientoEntry) => void;
+  onUpdateAdjunto: (id: string, adjunto: MantenimientoEntry["adjunto"]) => void;
 }) {
   const [viewChecklistId, setViewChecklistId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [adjuntoTargetId, setAdjuntoTargetId] = useState<string | null>(null);
+
+  function triggerFilePick(id: string) {
+    setAdjuntoTargetId(id);
+    fileInputRef.current?.click();
+  }
+
+  function handleAdjuntoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !adjuntoTargetId) return;
+    if (file.size > 4 * 1024 * 1024) {
+      alert("El archivo no debe superar 4 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      onUpdateAdjunto(adjuntoTargetId, {
+        nombre: file.name,
+        tipo: file.type,
+        data: reader.result as string,
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+    setAdjuntoTargetId(null);
+  }
+
+  function verAdjunto(adjunto: NonNullable<MantenimientoEntry["adjunto"]>) {
+    const win = window.open("", "_blank");
+    if (!win) return;
+    if (adjunto.tipo.startsWith("image/")) {
+      win.document.write(`<html><body style="margin:0;background:#000"><img src="${adjunto.data}" style="max-width:100%;display:block;margin:auto"></body></html>`);
+    } else {
+      win.document.write(`<html><body style="margin:0"><embed src="${adjunto.data}" width="100%" height="100%" type="${adjunto.tipo}"></body></html>`);
+    }
+  }
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
   const anterior = proximo
     ? (BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null)
@@ -2270,21 +2366,52 @@ function SeccionMantenimiento({
   const diffCosto = totalGastado - totalEstimado;
   const maxOdo = mantenimientoList.length > 0 ? Math.max(...mantenimientoList.map((e) => e.km)) : 0;
   const costoPorKm = maxOdo > 0 ? Math.round((totalGastado / maxOdo) * 100) / 100 : 0;
+  const promedioPorServicio = mantenimientoList.length > 0
+    ? Math.round(totalGastado / mantenimientoList.length)
+    : 0;
+
+  // Chart data — sorted oldest → newest for the x-axis
+  const chartData = [...mantenimientoList]
+    .sort((a, b) => {
+      if (a.fecha && b.fecha) return a.fecha.localeCompare(b.fecha);
+      return a.km - b.km;
+    })
+    .map((e, i, arr) => {
+      const acumulado = arr.slice(0, i + 1).reduce((s, x) => s + (x.costoReal ?? x.costo), 0);
+      return {
+        label: e.kmProgramado ? `${(e.kmProgramado / 1000).toFixed(0)}k km` : formatDateShort(e.fecha),
+        real: e.costoReal ?? e.costo,
+        estimado: e.costoEstimado ?? e.costo,
+        acumulado,
+      };
+    });
 
   return (
     <div className="space-y-4">
+      {/* Hidden file input for changing adjunto from history */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        className="hidden"
+        onChange={handleAdjuntoFileChange}
+      />
 
       {/* ── KPIs ── */}
       {mantenimientoList.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
-            <p className="text-[10px] text-white/35">Total gastado</p>
+            <p className="text-[10px] text-white/35">Gasto acumulado</p>
             <p className="mt-0.5 font-semibold text-white/80">{formatCurrency(totalGastado)}</p>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
+            <p className="text-[10px] text-white/35">Promedio / servicio</p>
+            <p className="mt-0.5 font-semibold text-white/80">{formatCurrency(promedioPorServicio)}</p>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
             <p className="text-[10px] text-white/35">Dif. estimado vs real</p>
-            <p className={`mt-0.5 font-semibold ${diffCosto > 0 ? "text-red-400" : "text-green-400"}`}>
-              {diffCosto > 0 ? "+" : ""}{formatCurrency(diffCosto)}
+            <p className={`mt-0.5 font-semibold ${diffCosto > 0 ? "text-red-400" : diffCosto < 0 ? "text-green-400" : "text-white/60"}`}>
+              {diffCosto === 0 ? "—" : `${diffCosto > 0 ? "+" : ""}${formatCurrency(diffCosto)}`}
             </p>
           </div>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center">
@@ -2293,6 +2420,63 @@ function SeccionMantenimiento({
           </div>
         </div>
       )}
+
+      {/* ── Gráfica de gasto en mantenimiento ── */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-4 text-sm font-semibold text-white/80">📊 Evolución del gasto en mantenimiento</h3>
+        {chartData.length === 0 ? (
+          <p className="py-6 text-center text-sm text-white/30">Aún no hay mantenimientos registrados.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} barGap={4} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
+                tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+                axisLine={false}
+                tickLine={false}
+                width={40}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#0d1117",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8,
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.8)",
+                }}
+                formatter={(value: unknown, name: unknown) => [
+                  `$${Number(value).toLocaleString("es-MX", { minimumFractionDigits: 0 })}`,
+                  name === "real" ? "Costo real" : name === "estimado" ? "Costo estimado" : "Acumulado",
+                ]}
+                labelStyle={{ color: "rgba(255,255,255,0.5)", marginBottom: 4 }}
+              />
+              <Legend
+                iconType="circle"
+                iconSize={7}
+                wrapperStyle={{ fontSize: 10, color: "rgba(255,255,255,0.4)", paddingTop: 8 }}
+                formatter={(v: string) =>
+                  v === "real" ? "Costo real" : v === "estimado" ? "Costo estimado" : "Acumulado"
+                }
+              />
+              <Bar dataKey="estimado" fill="rgba(255,255,255,0.08)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="real" fill="rgba(100,220,180,0.6)" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+        {chartData.length > 0 && (
+          <div className="mt-3 flex items-center gap-4 border-t border-white/5 pt-3 text-[10px] text-white/30">
+            <span>Gasto acumulado total: <span className="font-medium text-white/55">{formatCurrency(totalGastado)}</span></span>
+            <span className="ml-auto">{mantenimientoList.length} servicio{mantenimientoList.length !== 1 ? "s" : ""} registrado{mantenimientoList.length !== 1 ? "s" : ""}</span>
+          </div>
+        )}
+      </div>
 
       {/* ── Próximo servicio ── */}
       {proximo ? (
@@ -2457,7 +2641,43 @@ function SeccionMantenimiento({
                       )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">
-                      <Tag variant="green">Completado</Tag>
+                      <div className="flex items-center gap-1.5">
+                        <Tag variant="green">Completado</Tag>
+                        {entry.adjunto && (
+                          <span title={entry.adjunto.nombre} className="text-sm">📎</span>
+                        )}
+                      </div>
+                      {/* Adjunto actions */}
+                      {entry.adjunto ? (
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => verAdjunto(entry.adjunto!)}
+                            className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                            title="Ver adjunto"
+                          >Ver</button>
+                          <button
+                            type="button"
+                            onClick={() => triggerFilePick(entry.id)}
+                            className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                            title="Cambiar adjunto"
+                          >↺</button>
+                          <button
+                            type="button"
+                            onClick={() => onUpdateAdjunto(entry.id, undefined)}
+                            className="rounded border border-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                            title="Eliminar adjunto"
+                          >✕</button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => triggerFilePick(entry.id)}
+                          className="rounded border border-dashed border-white/10 px-1.5 py-0.5 text-[10px] text-white/25 transition-colors hover:border-white/20 hover:text-white/45"
+                          title="Agregar adjunto"
+                        >📎 Adjuntar</button>
+                      )}
+                      {/* Edit / Delete */}
                       <div className="flex gap-1">
                         <button
                           type="button"
@@ -3187,6 +3407,35 @@ export default function Home() {
     loadData();
   }, [kpiVersion]);
 
+  // Seed the 15,000 km service record once if it doesn't already exist
+  useEffect(() => {
+    const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+    const already = list.some((e) => e.kmProgramado === 15000 || e.km === 15000);
+    if (already) return;
+    const seedChecklist: ChecklistItemState[] = CHECKLIST_ITEMS.map((item) => ({
+      id: item.id,
+      realizado: true,
+    }));
+    const seedEntry: MantenimientoEntry = {
+      id: "seed-mantenimiento-15000",
+      fecha: "2025-04-01",
+      servicio: "15,000 km / 12 meses",
+      km: 15000,
+      costo: 2792,
+      estado: "completado",
+      kmProgramado: 15000,
+      mesesProgramado: 12,
+      costoEstimado: 2792,
+      costoReal: 2792,
+      agencia: "BYD",
+      notas: "Primer mantenimiento registrado",
+      checklist: seedChecklist,
+    };
+    saveData(KEYS.mantenimiento, [seedEntry]);
+    setKpiVersion((v) => v + 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const today = new Date();
   const dateStr = today.toLocaleDateString("es-CL", {
     weekday: "long",
@@ -3314,6 +3563,18 @@ export default function Home() {
     const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
     saveData(KEYS.mantenimiento, list.filter((e) => e.id !== id));
     setDeletingMantenimiento(null);
+    setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleUpdateAdjunto = useCallback(function (
+    id: string,
+    adjunto: MantenimientoEntry["adjunto"]
+  ) {
+    const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+    saveData(
+      KEYS.mantenimiento,
+      list.map((e) => (e.id === id ? { ...e, adjunto } : e))
+    );
     setKpiVersion((v) => v + 1);
   }, []);
 
@@ -3592,6 +3853,7 @@ export default function Home() {
               onRegistrar={(km) => setRegistrarServicioKm(km)}
               onEdit={(entry) => setEditingMantenimiento(entry)}
               onDelete={(entry) => setDeletingMantenimiento(entry)}
+              onUpdateAdjunto={handleUpdateAdjunto}
             />
           )}
 

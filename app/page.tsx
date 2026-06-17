@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.6";
+const APP_VERSION = "0.5.2.7";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1936,6 +1936,156 @@ function getBydKwhForPeriod(r: PeriodoElectricoRow, cargas: CargaEntry[]) {
   return { value: rounded, isManual: false };
 }
 
+// ── Gráfico histórico (SVG puro, sin librerías) ──────────────────────────
+type GraficoMetrica = "kwh" | "costo" | "promedio";
+
+function GraficoHistorico({
+  periodos,
+  cargas,
+}: {
+  periodos: PeriodoElectricoRow[];
+  cargas: CargaEntry[];
+}) {
+  const [metrica, setMetrica] = useState<GraficoMetrica>("kwh");
+
+  const data = [...periodos].reverse().map((r) => ({
+    label: formatDateShort(r.fecha_fin),
+    kwh: Number(r.kwh_bimestre) || 0,
+    costo: Number(r.costo_total_mxn) || 0,
+    promedio: r.costo_kwh_mxn ? Number(r.costo_kwh_mxn) : 0,
+    r,
+  }));
+
+  const getValue = (d: (typeof data)[0]) =>
+    metrica === "kwh" ? d.kwh : metrica === "costo" ? d.costo : d.promedio;
+
+  const values = data.map(getValue);
+  const maxVal = Math.max(...values, 1);
+
+  const W = 480;
+  const H = 120;
+  const PAD = { top: 10, right: 12, bottom: 28, left: 48 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const n = data.length;
+
+  const xOf = (i: number) =>
+    n === 1 ? PAD.left + chartW / 2 : PAD.left + (i / (n - 1)) * chartW;
+  const yOf = (v: number) =>
+    PAD.top + chartH - (v / maxVal) * chartH;
+
+  const polyline = data
+    .map((d, i) => `${xOf(i)},${yOf(getValue(d))}`)
+    .join(" ");
+
+  const fmtY = (v: number) =>
+    metrica === "kwh"
+      ? `${Math.round(v)}`
+      : metrica === "costo"
+      ? `$${Math.round(v)}`
+      : `$${v.toFixed(2)}`;
+
+  const metricaLabel: Record<GraficoMetrica, string> = {
+    kwh: "Consumo (kWh)",
+    costo: "Costo total",
+    promedio: "Costo promedio kWh",
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-white/80">📈 Evolución histórica</h3>
+        <div className="flex gap-1.5">
+          {(["kwh", "costo", "promedio"] as GraficoMetrica[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMetrica(m)}
+              className={`rounded-lg px-2 py-1 text-[10px] font-medium transition-colors ${
+                metrica === m
+                  ? "bg-byd-500/30 text-byd-400"
+                  : "bg-white/[0.04] text-white/35 hover:text-white/60"
+              }`}
+            >
+              {metricaLabel[m]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        aria-label={`Gráfico ${metricaLabel[metrica]}`}
+      >
+        {/* Y grid lines & labels */}
+        {[0, 0.5, 1].map((frac) => {
+          const yy = PAD.top + chartH * (1 - frac);
+          const val = maxVal * frac;
+          return (
+            <g key={frac}>
+              <line
+                x1={PAD.left}
+                y1={yy}
+                x2={PAD.left + chartW}
+                y2={yy}
+                stroke="rgba(255,255,255,0.06)"
+                strokeWidth={1}
+              />
+              <text
+                x={PAD.left - 4}
+                y={yy + 4}
+                textAnchor="end"
+                fontSize={9}
+                fill="rgba(255,255,255,0.3)"
+              >
+                {fmtY(val)}
+              </text>
+            </g>
+          );
+        })}
+        {/* Area fill */}
+        {n > 1 && (
+          <polygon
+            points={`${PAD.left},${PAD.top + chartH} ${polyline} ${PAD.left + chartW},${PAD.top + chartH}`}
+            fill="rgba(14,165,233,0.08)"
+          />
+        )}
+        {/* Line */}
+        {n > 1 && (
+          <polyline
+            points={polyline}
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth={1.8}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        )}
+        {/* Points + X labels */}
+        {data.map((d, i) => {
+          const x = xOf(i);
+          const y = yOf(getValue(d));
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r={3} fill="#38bdf8" />
+              <title>{`${d.label}: ${fmtY(getValue(d))}`}</title>
+              <text
+                x={x}
+                y={H - 4}
+                textAnchor="middle"
+                fontSize={8}
+                fill="rgba(255,255,255,0.25)"
+              >
+                {d.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 // ── Centro de Energía component ──────────────────────────────────────────
 function SeccionEnergia({
   periodos,
@@ -2096,11 +2246,16 @@ function SeccionEnergia({
                 <span className="text-white/40">Costo total</span>
                 <span className="font-medium text-byd-400">{formatCurrency(ultimoRecibo.costo_total_mxn)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-white/40">Costo promedio</span>
-                <span className="font-medium text-white/80">
-                  {costoKwh > 0 ? `${costoKwh.toFixed(4)}/kWh` : "—"}
-                </span>
+              <div>
+                <div className="flex justify-between">
+                  <span className="text-white/40">Costo promedio del recibo</span>
+                  <span className="font-medium text-white/80">
+                    {costoKwh > 0 ? `$${costoKwh.toFixed(4)} / kWh` : "—"}
+                  </span>
+                </div>
+                {costoKwh > 0 && (
+                  <p className="mt-0.5 text-right text-[10px] text-white/25">Promedio calculado del recibo CFE</p>
+                )}
               </div>
               {ultimoRecibo.numero_recibo && (
                 <div className="flex justify-between">
@@ -2178,7 +2333,7 @@ function SeccionEnergia({
                 <div className="rounded-lg bg-byd-500/10 p-3">
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-byd-400" />
-                    <span className="text-xs font-medium text-white/50">BYD</span>
+                    <span className="text-xs font-medium text-white/50">🚗 BYD</span>
                   </div>
                   <p className="mt-1 text-base font-semibold text-byd-400">{pctByd}%</p>
                   <p className="text-xs text-white/40">{kwhBydRounded} kWh</p>
@@ -2186,7 +2341,7 @@ function SeccionEnergia({
                 <div className="rounded-lg bg-amber-500/10 p-3">
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-amber-500/40" />
-                    <span className="text-xs font-medium text-white/50">Casa</span>
+                    <span className="text-xs font-medium text-white/50">🏠 Casa</span>
                   </div>
                   <p className="mt-1 text-base font-semibold text-amber-400">{pctCasa}%</p>
                   <p className="text-xs text-white/40">{kwhCasa} kWh</p>
@@ -2227,12 +2382,13 @@ function SeccionEnergia({
             </div>
             <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-white/40">Costo BYD (Marginal)</span>
+                <span className="text-white/40">Costo BYD (Conservador)</span>
                 <span className="font-semibold text-cyan-400">
                   {costoBydMarginal > 0 ? formatCurrency(costoBydMarginal) : "—"}
                 </span>
               </div>
-              <div className="mt-1 flex items-center gap-2">
+              <p className="mt-0.5 text-[10px] text-white/25">Utiliza un costo manual por kWh para estimaciones.</p>
+              <div className="mt-1.5 flex items-center gap-2">
                 <label className="text-[10px] text-white/30">$/kWh manual:</label>
                 <input
                   type="number"
@@ -2246,7 +2402,7 @@ function SeccionEnergia({
               </div>
               {costoMarginalPorKwh > 0 && (
                 <p className="mt-0.5 text-[10px] text-white/30">
-                  Estimación conservadora: {costoMarginalPorKwh.toFixed(2)}/kWh × {kwhBydRounded} kWh
+                  {costoMarginalPorKwh.toFixed(2)}/kWh × {kwhBydRounded} kWh
                 </p>
               )}
             </div>
@@ -2271,17 +2427,35 @@ function SeccionEnergia({
                   >
                     <div className="flex items-center justify-between">
                       <div className="min-w-0 flex-1">
-                        <p className="text-white/60 truncate">
+                        <p className="text-[11px] font-medium text-white/60 truncate">
                           {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
                         </p>
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/30">
-                          <span>Total: {r.kwh_bimestre} kWh</span>
-                          <span className="text-byd-400/80">
-                            {hByd.isManual ? "BYD: " : "BYD auto: "}{hByd.value} kWh
-                          </span>
-                          <span>{formatCurrency(r.costo_total_mxn)}</span>
-                          <span>Tarifa: {r.tarifa || "1C"}</span>
-                          <span>{r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
+                        <div className="mt-1 flex items-center justify-between text-[11px]">
+                          <span className="text-white/30">{formatCurrency(r.costo_total_mxn)}</span>
+                          <span className="text-white/25">Tarifa {r.tarifa || "1C"} · {r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
+                        </div>
+                        <div className="mt-1 grid grid-cols-2 gap-1.5 text-[11px]">
+                          {(() => {
+                            const total = Number(r.kwh_bimestre);
+                            const bydKwh = hByd.value;
+                            const casaKwh = Math.max(0, total - bydKwh);
+                            const bydPct = total > 0 ? Math.round((bydKwh / total) * 100) : 0;
+                            const casaPct = 100 - bydPct;
+                            return (
+                              <>
+                                <div className="rounded bg-byd-500/10 px-2 py-1">
+                                  <span className="text-white/40">🚗 BYD</span>
+                                  <p className="font-medium text-byd-400">{bydKwh} kWh <span className="font-normal text-white/30">({bydPct}%)</span></p>
+                                  {!hByd.isManual && <p className="text-[10px] text-white/20">auto</p>}
+                                </div>
+                                <div className="rounded bg-amber-500/10 px-2 py-1">
+                                  <span className="text-white/40">🏠 Casa</span>
+                                  <p className="font-medium text-amber-400">{casaKwh} kWh <span className="font-normal text-white/30">({casaPct}%)</span></p>
+                                  <p className="text-[10px] text-white/20">Total: {total} kWh</p>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                         {getPeriodoAlerts(r).length > 0 && (
                           <div className="mt-0.5 flex gap-1.5">
@@ -2329,6 +2503,51 @@ function SeccionEnergia({
           <p className="text-sm text-white/30">Aquí se listarán los recibos CFE registrados.</p>
         )}
       </div>
+
+      {/* Card E: Resumen del periodo */}
+      {ultimoRecibo && (
+        <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+          <h3 className="mb-3 text-sm font-medium text-white/80">📊 Resumen del periodo</h3>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] text-white/35">Consumo total</p>
+              <p className="font-semibold text-white/80">{kwhBimestre} kWh</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">🚗 Consumo BYD</p>
+              <p className="font-semibold text-byd-400">{kwhBydRounded} kWh</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">🏠 Consumo Casa</p>
+              <p className="font-semibold text-amber-400">{kwhCasa} kWh</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">Costo total</p>
+              <p className="font-semibold text-white/80">{formatCurrency(ultimoRecibo.costo_total_mxn)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">🚗 Costo BYD</p>
+              <p className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">🏠 Costo Casa</p>
+              <p className="font-semibold text-amber-400">{formatCurrency(costoCasaPromedio)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Card F: Gráfico histórico */}
+      {periodos.length > 1 && (
+        <GraficoHistorico periodos={periodos} cargas={cargas} />
+      )}
+
+      {/* Footer: información del cálculo */}
+      <p className="mt-5 text-center text-[10px] leading-relaxed text-white/20">
+        Costo promedio = Total del recibo ÷ Consumo total.&nbsp;&nbsp;
+        Costo BYD = Consumo BYD × Costo promedio.&nbsp;&nbsp;
+        Costo Casa = Consumo Casa × Costo promedio.
+      </p>
     </div>
     </>
   );

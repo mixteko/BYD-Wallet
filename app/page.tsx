@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.7";
+const APP_VERSION = "0.5.2.8";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2211,9 +2211,11 @@ function SeccionEnergia({
         })()}
       </Modal>
 
+      {/* ── Fila 1: Recibo vigente + Casa vs BYD ── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {/* Card A: Recibo CFE vigente */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+
+        {/* Card A: Recibo CFE vigente */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         {ultimoRecibo ? (
           <>
             <h3 className="mb-3 text-sm font-medium text-white/80">📄 Recibo CFE vigente</h3>
@@ -2237,10 +2239,14 @@ function SeccionEnergia({
                 <span className="font-medium text-white/80">{kwhBimestre} kWh</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-white/40">Consumo BYD</span>
+                <span className="text-white/40">🚗 Consumo BYD</span>
                 <span className="font-medium text-byd-400">
-                  {bydInfo.isManual ? "BYD: " : "BYD auto: "}{kwhBydRounded} kWh
+                  {kwhBydRounded} kWh{bydInfo.isManual ? "" : " (auto)"}
                 </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">🏠 Consumo Casa</span>
+                <span className="font-medium text-amber-400">{kwhCasa} kWh</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Costo total</span>
@@ -2356,9 +2362,13 @@ function SeccionEnergia({
           </>
         )}
       </div>
+      </div>{/* ── /Fila 1 ── */}
 
-      {/* Card C: Costos eléctricos */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+      {/* ── Fila 2: Costos eléctricos + Resumen del periodo ── */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+
+        {/* Card C: Costos eléctricos */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         <h3 className="mb-3 text-sm font-medium text-white/80">Costos eléctricos</h3>
         {ultimoRecibo ? (
           <div className="space-y-3 text-sm">
@@ -2410,137 +2420,120 @@ function SeccionEnergia({
         ) : (
           <p className="text-sm text-white/30">Aquí se mostrarán los costos cuando haya un recibo vigente.</p>
         )}
-      </div>
+        </div>
 
-      {/* Card D: Historial de recibos */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        {/* Card E: Resumen del periodo */}
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+          <h3 className="mb-3 text-sm font-medium text-white/80">📊 Resumen del periodo</h3>
+          {ultimoRecibo ? (
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+              <div>
+                <p className="text-[11px] text-white/35">Consumo total</p>
+                <p className="font-semibold text-white/80">{kwhBimestre} kWh</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/35">🚗 Consumo BYD</p>
+                <p className="font-semibold text-byd-400">{kwhBydRounded} kWh</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/35">🏠 Consumo Casa</p>
+                <p className="font-semibold text-amber-400">{kwhCasa} kWh</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/35">Costo total</p>
+                <p className="font-semibold text-white/80">{formatCurrency(ultimoRecibo.costo_total_mxn)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/35">🚗 Costo BYD</p>
+                <p className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/35">🏠 Costo Casa</p>
+                <p className="font-semibold text-amber-400">{formatCurrency(costoCasaPromedio)}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-white/30">Aquí se mostrará el resumen cuando haya un recibo vigente.</p>
+          )}
+        </div>
+      </div>{/* ── /Fila 2 ── */}
+
+      {/* ── Fila 3: Evolución histórica (ancho completo) ── */}
+      {periodos.length > 1 && (
+        <GraficoHistorico periodos={periodos} cargas={cargas} />
+      )}
+
+      {/* ── Historial de recibos (ancho completo, filas compactas) ── */}
+      <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         <h3 className="mb-3 text-sm font-medium text-white/80">Historial de recibos</h3>
-        {ultimoRecibo ? (
+        {periodos.length > 0 ? (
           recibosAnteriores.length > 0 ? (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-1.5">
               {recibosAnteriores.map((r) => {
                 const hByd = getBydKwhForPeriod(r, cargas);
+                const total = Number(r.kwh_bimestre);
+                const bydKwh = hByd.value;
+                const casaKwh = Math.max(0, total - bydKwh);
+                const bydPct = total > 0 ? Math.round((bydKwh / total) * 100) : 0;
+                const casaPct = 100 - bydPct;
                 return (
-                  <div
-                    key={r.id}
-                    className="rounded-lg bg-white/[0.03] px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-medium text-white/60 truncate">
+                  <div key={r.id} className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-3">
+                        <span className="text-[11px] font-medium text-white/60">
                           {formatDateOnlyMX(r.fecha_inicio)} — {formatDateOnlyMX(r.fecha_fin)}
-                        </p>
-                        <div className="mt-1 flex items-center justify-between text-[11px]">
-                          <span className="text-white/30">{formatCurrency(r.costo_total_mxn)}</span>
-                          <span className="text-white/25">Tarifa {r.tarifa || "1C"} · {r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}</span>
-                        </div>
-                        <div className="mt-1 grid grid-cols-2 gap-1.5 text-[11px]">
-                          {(() => {
-                            const total = Number(r.kwh_bimestre);
-                            const bydKwh = hByd.value;
-                            const casaKwh = Math.max(0, total - bydKwh);
-                            const bydPct = total > 0 ? Math.round((bydKwh / total) * 100) : 0;
-                            const casaPct = 100 - bydPct;
-                            return (
-                              <>
-                                <div className="rounded bg-byd-500/10 px-2 py-1">
-                                  <span className="text-white/40">🚗 BYD</span>
-                                  <p className="font-medium text-byd-400">{bydKwh} kWh <span className="font-normal text-white/30">({bydPct}%)</span></p>
-                                  {!hByd.isManual && <p className="text-[10px] text-white/20">auto</p>}
-                                </div>
-                                <div className="rounded bg-amber-500/10 px-2 py-1">
-                                  <span className="text-white/40">🏠 Casa</span>
-                                  <p className="font-medium text-amber-400">{casaKwh} kWh <span className="font-normal text-white/30">({casaPct}%)</span></p>
-                                  <p className="text-[10px] text-white/20">Total: {total} kWh</p>
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
-                        {getPeriodoAlerts(r).length > 0 && (
-                          <div className="mt-0.5 flex gap-1.5">
-                            {getPeriodoAlerts(r).map((a, i) => (
-                              <span key={i} className="text-[10px] text-amber-400/70">⚠️ {a}</span>
-                            ))}
-                          </div>
-                        )}
+                        </span>
+                        <span className="text-[11px] text-white/30">{formatCurrency(r.costo_total_mxn)}</span>
+                        <span className="text-[10px] text-white/20">
+                          Tarifa {r.tarifa || "1C"} · {r.costo_kwh_mxn ? `$${Number(r.costo_kwh_mxn).toFixed(2)}/kWh` : "—"}
+                        </span>
                       </div>
-                      <div className="ml-2 flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onViewRecibo(r)}
-                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
-                          title="Ver detalle"
-                        >
-                          📋
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onEditRecibo(r)}
-                          className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
-                          title="Editar"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteRecibo(r)}
-                          className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                          title="Eliminar"
-                        >
-                          🗑️
-                        </button>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px]">
+                        <span className="text-white/25">Total: {total} kWh</span>
+                        <span className="text-byd-400/70">🚗 {bydKwh} kWh ({bydPct}%){!hByd.isManual ? " auto" : ""}</span>
+                        <span className="text-amber-400/70">🏠 {casaKwh} kWh ({casaPct}%)</span>
+                        {getPeriodoAlerts(r).map((a, i) => (
+                          <span key={i} className="text-amber-400/60">⚠️ {a}</span>
+                        ))}
                       </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onViewRecibo(r)}
+                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                        title="Ver detalle"
+                      >
+                        📋
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEditRecibo(r)}
+                        className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-white/40 transition-colors hover:bg-white/5 hover:text-white/60"
+                        title="Editar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteRecibo(r)}
+                        className="rounded-lg border border-red-500/20 px-2 py-1 text-[11px] text-red-400/40 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                        title="Eliminar"
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <p className="text-sm text-white/30">No hay más recibos registrados.</p>
+            <p className="text-sm text-white/30">Solo hay un recibo registrado (el vigente).</p>
           )
         ) : (
           <p className="text-sm text-white/30">Aquí se listarán los recibos CFE registrados.</p>
         )}
       </div>
-
-      {/* Card E: Resumen del periodo */}
-      {ultimoRecibo && (
-        <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-          <h3 className="mb-3 text-sm font-medium text-white/80">📊 Resumen del periodo</h3>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-            <div>
-              <p className="text-[11px] text-white/35">Consumo total</p>
-              <p className="font-semibold text-white/80">{kwhBimestre} kWh</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-white/35">🚗 Consumo BYD</p>
-              <p className="font-semibold text-byd-400">{kwhBydRounded} kWh</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-white/35">🏠 Consumo Casa</p>
-              <p className="font-semibold text-amber-400">{kwhCasa} kWh</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-white/35">Costo total</p>
-              <p className="font-semibold text-white/80">{formatCurrency(ultimoRecibo.costo_total_mxn)}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-white/35">🚗 Costo BYD</p>
-              <p className="font-semibold text-byd-400">{formatCurrency(costoBydPromedio)}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-white/35">🏠 Costo Casa</p>
-              <p className="font-semibold text-amber-400">{formatCurrency(costoCasaPromedio)}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Card F: Gráfico histórico */}
-      {periodos.length > 1 && (
-        <GraficoHistorico periodos={periodos} cargas={cargas} />
-      )}
 
       {/* Footer: información del cálculo */}
       <p className="mt-5 text-center text-[10px] leading-relaxed text-white/20">
@@ -2548,7 +2541,6 @@ function SeccionEnergia({
         Costo BYD = Consumo BYD × Costo promedio.&nbsp;&nbsp;
         Costo Casa = Consumo Casa × Costo promedio.
       </p>
-    </div>
     </>
   );
 }

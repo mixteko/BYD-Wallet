@@ -392,7 +392,12 @@ const MONTHS = [
 ];
 
 function formatCurrency(n: number): string {
-  return `$${n.toLocaleString("es-CL")}`;
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
 }
 
 function formatDecimal(n: number, d: number = 1): string {
@@ -675,7 +680,7 @@ function CargaForm({
           </div>
           <div className="flex justify-between">
             <span className="text-white/40">Costo por kWh</span>
-            <span className="font-semibold text-white">${costoPorKwh.toLocaleString("es-CL")}</span>
+            <span className="font-semibold text-white">{formatCurrency(costoPorKwh)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-white/40">km EV obtenidos</span>
@@ -1025,7 +1030,7 @@ function SettingsForm({
               </div>
               <div className="flex justify-between">
                 <span className="text-white/40">Costo estimado del auto</span>
-                <span className="font-semibold text-white">${costoAutoEstimado.toLocaleString("es-CL")}</span>
+                <span className="font-semibold text-white">{formatCurrency(costoAutoEstimado)}</span>
               </div>
               <div className="border-t border-byd-500/10 pt-1.5">
                 <div className="flex justify-between text-xs">
@@ -1535,7 +1540,7 @@ function GastoPorDia() {
           <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
-            formatter={(value: any) => [`$${Number(value).toLocaleString("es-CL")}`, "Gasto"]}
+            formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
           />
           <Area type="monotone" dataKey="gasto" stroke="#12b8a0" strokeWidth={2} fill="url(#gastoDia)" />
         </AreaChart>
@@ -1576,7 +1581,7 @@ function GastoPorMes() {
           <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
-            formatter={(value: any) => [`$${Number(value).toLocaleString("es-CL")}`, "Gasto"]}
+            formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
           />
           <Bar dataKey="gasto" fill="#12b8a0" radius={[4, 4, 0, 0]} />
         </BarChart>
@@ -1663,7 +1668,7 @@ function ComparativoGasolinaVsElectricidad() {
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#fff" }}
             formatter={(value: any, name: any) => {
               const label = name === "gasolina" ? "Gasolina" : "Electricidad";
-              return [`$${Number(value).toLocaleString("es-CL")}`, label];
+              return [formatCurrency(Number(value)), label];
             }}
           />
           <Legend

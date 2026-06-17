@@ -12,9 +12,45 @@ export type GastoRow = { fecha: string; costo: number };
 
 export type FuelRow = GastoRow & { litros: number; kilometraje: number };
 
-export type ElectricChargeRow = GastoRow & { kwhCargados: number };
+export type ElectricChargeRow = GastoRow & {
+  kwhCargados: number;
+  /** Ubicación/tipo: Casa, Pública, Electrolinera, etc. */
+  tipoCarga?: string | null;
+};
 
-export type ElectricCostSource = "centro_energia" | "cargas_ev";
+export type ElectricCostSource = "combinado" | "centro_energia" | "cargas_ev";
+
+export interface ElectricCostResult {
+  total: number;
+  casa: number;
+  externo: number;
+  source: ElectricCostSource;
+}
+
+export const TIPO_CARGA_EV_CASA = "Casa";
+
+export function normalizeTipoCargaEv(raw: string | null | undefined): string {
+  if (!raw?.trim()) return "Otro";
+  const t = raw.trim();
+  if (t === TIPO_CARGA_EV_CASA) return TIPO_CARGA_EV_CASA;
+  if (["Pública", "Supermercado", "Electrolinera", "Trabajo", "Otro"].includes(t)) return t;
+  if (t === "CCS2") return "Electrolinera";
+  if (t === "AC 7kW" || t === "AC 22kW") return "Pública";
+  return "Otro";
+}
+
+export function getCargaEvTipo(c: { tipoCarga?: string | null; tipo?: string | null }): string {
+  return normalizeTipoCargaEv(c.tipoCarga ?? c.tipo ?? null);
+}
+
+/** Recarga externa pagada fuera de casa — suma al gasto eléctrico total. */
+export function isCargaEvExterna(c: { tipoCarga?: string | null; tipo?: string | null }): boolean {
+  return getCargaEvTipo(c) !== TIPO_CARGA_EV_CASA;
+}
+
+export function isCargaEvCasa(c: { tipoCarga?: string | null; tipo?: string | null }): boolean {
+  return getCargaEvTipo(c) === TIPO_CARGA_EV_CASA;
+}
 
 export interface VehicleCostInput {
   fuelRows: FuelRow[];
@@ -150,7 +186,9 @@ export function getBydKwhForPeriod(r: PeriodoElectricoRow, cargas: ElectricCharg
   if (manualVal > 0) {
     return { value: manualVal, isManual: true };
   }
-  const calculated = cargas
+  // Solo cargas en casa como respaldo de kWh (Centro de Energía); externas no afectan CFE.
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const calculated = casaCargas
     .filter((c) => cargaEnPeriodoElectrico(c, r))
     .reduce((sum, c) => sum + c.kwhCargados, 0);
   return { value: Math.round(calculated * 10) / 10, isManual: false };
@@ -170,31 +208,35 @@ export function hasCentroEnergiaConfigurado(periodos: PeriodoElectricoRow[]): bo
 }
 
 function electricCostFromCentro(periodos: PeriodoElectricoRow[], cargas: ElectricChargeRow[]): number {
-  return roundMoney(periodos.reduce((s, p) => s + costoBydFromPeriodo(p, cargas), 0));
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  return roundMoney(periodos.reduce((s, p) => s + costoBydFromPeriodo(p, casaCargas), 0));
 }
 
-function electricCostFromCharges(cargas: ElectricChargeRow[]): number {
-  return roundMoney(cargas.reduce((s, c) => s + c.costo, 0));
+function electricCostFromExternalCharges(cargas: ElectricChargeRow[]): number {
+  return roundMoney(
+    cargas.filter((c) => isCargaEvExterna(c)).reduce((s, c) => s + c.costo, 0),
+  );
 }
 
-/** Centro de Energía con al menos un costo BYD calculable (> 0). Si no, usar cargas EV. */
-function usesCentroEnergiaForCost(
-  periodos: PeriodoElectricoRow[],
-  cargas: ElectricChargeRow[],
-): boolean {
-  if (!hasCentroEnergiaConfigurado(periodos)) return false;
-  return electricCostFromCentro(periodos, cargas) > 0;
+function resolveElectricCostSource(casa: number, externo: number): ElectricCostSource {
+  if (casa > 0 && externo > 0) return "combinado";
+  if (casa > 0) return "centro_energia";
+  return "cargas_ev";
 }
 
-/** Gasto eléctrico BYD acumulado — fuente única (Centro de Energía o Cargas EV). */
+/** Gasto eléctrico BYD = Centro de Energía (casa) + recargas EV externas. */
 export function calculateElectricCost(
   periodos: PeriodoElectricoRow[],
   cargas: ElectricChargeRow[],
-): { total: number; source: ElectricCostSource } {
-  if (usesCentroEnergiaForCost(periodos, cargas)) {
-    return { total: electricCostFromCentro(periodos, cargas), source: "centro_energia" };
-  }
-  return { total: electricCostFromCharges(cargas), source: "cargas_ev" };
+): ElectricCostResult {
+  const casa = electricCostFromCentro(periodos, cargas);
+  const externo = electricCostFromExternalCharges(cargas);
+  return {
+    total: roundMoney(casa + externo),
+    casa,
+    externo,
+    source: resolveElectricCostSource(casa, externo),
+  };
 }
 
 export function calculateElectricCostAnnual(
@@ -202,16 +244,23 @@ export function calculateElectricCostAnnual(
   cargas: ElectricChargeRow[],
   year: number = new Date().getFullYear(),
 ): number {
-  if (usesCentroEnergiaForCost(periodos, cargas)) {
-    return roundMoney(
-      periodos.reduce((s, p) => {
-        const fin = normalizeDate(p.fecha_fin);
-        if (!fin || fin.getFullYear() !== year) return s;
-        return s + costoBydFromPeriodo(p, cargas);
-      }, 0),
-    );
-  }
-  return sumGastoEnAnio(cargas, year);
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const casa = roundMoney(
+    periodos.reduce((s, p) => {
+      const fin = normalizeDate(p.fecha_fin);
+      if (!fin || fin.getFullYear() !== year) return s;
+      return s + costoBydFromPeriodo(p, casaCargas);
+    }, 0),
+  );
+  const externo = roundMoney(
+    cargas.reduce((s, c) => {
+      if (!isCargaEvExterna(c)) return s;
+      const d = normalizeDate(c.fecha);
+      if (!d || d.getFullYear() !== year) return s;
+      return s + c.costo;
+    }, 0),
+  );
+  return roundMoney(casa + externo);
 }
 
 export function calculateElectricCostMonthly(
@@ -219,22 +268,23 @@ export function calculateElectricCostMonthly(
   cargas: ElectricChargeRow[],
   monthKey: string,
 ): number {
-  if (usesCentroEnergiaForCost(periodos, cargas)) {
-    return roundMoney(
-      periodos.reduce((s, p) => {
-        const key = monthKeyFromIso(p.fecha_fin);
-        if (key !== monthKey) return s;
-        return s + costoBydFromPeriodo(p, cargas);
-      }, 0),
-    );
-  }
-  return roundMoney(
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const casa = roundMoney(
+    periodos.reduce((s, p) => {
+      const key = monthKeyFromIso(p.fecha_fin);
+      if (key !== monthKey) return s;
+      return s + costoBydFromPeriodo(p, casaCargas);
+    }, 0),
+  );
+  const externo = roundMoney(
     cargas.reduce((s, c) => {
+      if (!isCargaEvExterna(c)) return s;
       const key = monthKeyFromIso(c.fecha);
       if (key !== monthKey) return s;
       return s + c.costo;
     }, 0),
   );
+  return roundMoney(casa + externo);
 }
 
 export function calculateElectricCostDaily(
@@ -242,17 +292,20 @@ export function calculateElectricCostDaily(
   cargas: ElectricChargeRow[],
   isoDate: string,
 ): number {
-  if (usesCentroEnergiaForCost(periodos, cargas)) {
-    return roundMoney(
-      periodos.reduce((s, p) => {
-        if (p.fecha_fin !== isoDate) return s;
-        return s + costoBydFromPeriodo(p, cargas);
-      }, 0),
-    );
-  }
-  return roundMoney(
-    cargas.reduce((s, c) => (dateIsoFromEntry(c.fecha) === isoDate ? s + c.costo : s), 0),
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const casa = roundMoney(
+    periodos.reduce((s, p) => {
+      if (p.fecha_fin !== isoDate) return s;
+      return s + costoBydFromPeriodo(p, casaCargas);
+    }, 0),
   );
+  const externo = roundMoney(
+    cargas.reduce((s, c) => {
+      if (!isCargaEvExterna(c)) return s;
+      return dateIsoFromEntry(c.fecha) === isoDate ? s + c.costo : s;
+    }, 0),
+  );
+  return roundMoney(casa + externo);
 }
 
 export function getCentroEnergiaCostos(
@@ -260,7 +313,8 @@ export function getCentroEnergiaCostos(
   cargas: ElectricChargeRow[],
 ) {
   if (!ultimoRecibo) return null;
-  const bydInfo = getBydKwhForPeriod(ultimoRecibo, cargas);
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const bydInfo = getBydKwhForPeriod(ultimoRecibo, casaCargas);
   const kwhByd = bydInfo.value;
   const kwhBimestre = Number(ultimoRecibo.kwh_bimestre) || 0;
   const costoKwh = ultimoRecibo.costo_kwh_mxn ? Number(ultimoRecibo.costo_kwh_mxn) : 0;
@@ -281,12 +335,12 @@ export function calculateTotalKwhByd(
   periodos: PeriodoElectricoRow[],
   cargas: ElectricChargeRow[],
 ): number {
-  if (usesCentroEnergiaForCost(periodos, cargas)) {
-    return Math.round(
-      periodos.reduce((s, p) => s + getBydKwhForPeriod(p, cargas).value, 0) * 10,
-    ) / 10;
-  }
-  return Math.round(cargas.reduce((s, c) => s + c.kwhCargados, 0) * 10) / 10;
+  const casaCargas = cargas.filter((c) => isCargaEvCasa(c));
+  const kwhCentro = periodos.reduce((s, p) => s + getBydKwhForPeriod(p, casaCargas).value, 0);
+  const kwhExterno = cargas
+    .filter((c) => isCargaEvExterna(c))
+    .reduce((s, c) => s + c.kwhCargados, 0);
+  return Math.round((kwhCentro + kwhExterno) * 10) / 10;
 }
 
 // ── Gastos por categoría ────────────────────────────────────────────────────

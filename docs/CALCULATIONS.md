@@ -10,34 +10,45 @@ Dashboard, Reportes y módulos **deben** usar estas funciones; no duplicar fórm
 | Categoría | Origen |
 |---|---|
 | Gasolina | Supabase `recargas` (tipo gasolina) |
-| Electricidad BYD | Centro de Energía (`periodos_electricos`) **o** Cargas EV (`cargas_electricas`) |
+| Electricidad BYD | Centro de Energía (`periodos_electricos`) **+** Cargas EV externas (`cargas_electricas`, tipo ≠ Casa) |
 | Mantenimiento | Supabase `maintenance_records` + local |
 | Otros costos | Supabase `maintenance_extra_costs` + local |
 | Kilómetros | Odómetro actual − odómetro mínimo en recargas de gasolina |
 
 ---
 
-## Gasto eléctrico BYD — regla de fuente única
+## Gasto eléctrico BYD — regla oficial (v0.6.4)
 
-**Caso A — Centro de Energía con costo BYD válido (> 0)**  
-Existe al menos un recibo CFE con `costo_kwh_mxn > 0`, `kwh_bimestre > 0` **y** el costo BYD calculado total es mayor a cero.
-
-```
-Gasto eléctrico BYD = Σ (kWh BYD del periodo × tarifa CFE del periodo)
-```
-
-- kWh BYD = `kwh_byd_periodo` manual **o** suma de cargas EV dentro del rango del recibo.
-- Las Cargas EV son **eventos**; no se suma `costo_total` de cargas para evitar duplicar el gasto CFE.
-
-**Caso B — Sin Centro de Energía válido o costo BYD = 0**
+La electricidad del BYD se compone de **dos fuentes complementarias** que siempre se suman:
 
 ```
-Gasto eléctrico BYD = Σ cargas_electricas.costo_total
+Electricidad BYD total =
+  Gasto eléctrico BYD en casa (Centro de Energía / CFE)
+  +
+  Recargas EV externas pagadas fuera de casa
 ```
 
-Si hay recibos CFE pero ningún costo BYD calculable, **no bloquea** el fallback a Cargas EV.
+### Centro de Energía (carga en casa)
 
-Función: `calculateElectricCost()`
+```
+Gasto casa = Σ (kWh BYD del periodo × tarifa CFE del periodo)
+```
+
+- Origen: recibos CFE en `periodos_electricos`.
+- kWh BYD = `kwh_byd_periodo` manual **o** suma de cargas tipo **Casa** dentro del rango del recibo (solo kWh, sin costo).
+- Cubre la carga doméstica calculada desde la factura de luz.
+
+### Cargas EV externas
+
+```
+Gasto externo = Σ cargas_electricas.costo_total_mxn  (tipo_carga ≠ "Casa")
+```
+
+- Origen: `cargas_electricas` — electrolineras, supermercados, cargadores públicos, trabajo, etc.
+- **No duplica** Centro de Energía: son pagos fuera de casa.
+- Cargas tipo **Casa** se registran como evento pero **no suman** al gasto (evita doble conteo con CFE).
+
+Función principal: `calculateElectricCost()` → `{ total, casa, externo, source }`
 
 ---
 
@@ -161,7 +172,7 @@ Los siguientes módulos leen el mismo motor:
 
 - Chip **Gasto anual** → `calculateAnnualTotalCost()`
 - Chip **Costo por km** → `calculateCostPerKm(calculateTotalVehicleCost(), calculateKmTraveled())`
-- Chip **Gasto eléctrico** → `calculateElectricCost()`
+- Chip **Gasto eléctrico** → `calculateElectricCost()` (casa + externas)
 - Panel **Electricidad BYD** → acumulado, mensual y anual vía funciones eléctricas oficiales
 - **Eficiencia y Costos** → `calculateEfficiencyAndCosts()`
 - **Reportes** (gráficas) → `buildMonthlyExpenseBreakdown12()` / `buildDailyExpenseLast7Days()`

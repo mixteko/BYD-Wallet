@@ -29,6 +29,9 @@ import {
   getTotalGastoElectricoByd,
   isPeriodoElectricoValido,
   monthKeyLocal,
+  isCargaEvExterna,
+  isCargaEvCasa,
+  normalizeTipoCargaEv,
   type VehicleCostInput,
   type DashboardGastoRow,
 } from "@/lib/calculations";
@@ -46,10 +49,13 @@ interface GasolinaEntry {
   concepto: string;
 }
 
+const TIPOS_CARGA_EV = ["Electrolinera", "Pública", "Supermercado", "Trabajo", "Otro", "Casa"] as const;
+type TipoCargaEv = typeof TIPOS_CARGA_EV[number];
+
 interface CargaEntry {
   id: string;
   fecha: string;
-  tipo: "CCS2" | "AC 7kW" | "AC 22kW";
+  tipo: TipoCargaEv;
   pctInicial: number;
   pctFinal: number;
   kwhCargados: number;
@@ -418,7 +424,7 @@ function mapRecargaEvToCargaEntry(r: RecargaRow, rendimientoKmKwh: number): Carg
   return {
     id: `recarga-${r.id}`,
     fecha: r.fecha,
-    tipo: "CCS2",
+    tipo: "Pública",
     pctInicial: 0,
     pctFinal: 100,
     kwhCargados: Math.round(kwhFromDist * 10) / 10,
@@ -431,9 +437,7 @@ function mapRecargaEvToCargaEntry(r: RecargaRow, rendimientoKmKwh: number): Carg
 function mapCargaElectricaToEntry(r: CargaElectricaRow, rendimientoKmKwh: number): CargaEntry {
   const kwh = Number(r.kwh_estimados || 0);
   const costo = Number(r.costo_total_mxn || 0);
-  const tipo = (r.tipo_carga === "AC 7kW" || r.tipo_carga === "AC 22kW" || r.tipo_carga === "CCS2")
-    ? r.tipo_carga
-    : "CCS2";
+  const tipo = normalizeTipoCargaEv(r.tipo_carga) as TipoCargaEv;
   return {
     id: String(r.id),
     fecha: r.fecha || "",
@@ -1026,7 +1030,9 @@ function CargaForm({
   initialData?: CargaEntry | null;
   isEdit?: boolean;
 }) {
-  const [tipo, setTipo] = useState<"CCS2" | "AC 7kW" | "AC 22kW">(initialData?.tipo ?? "CCS2");
+  const [tipo, setTipo] = useState<TipoCargaEv>(
+    initialData?.tipo ? normalizeTipoCargaEv(initialData.tipo) as TipoCargaEv : "Electrolinera",
+  );
   const [fecha, setFecha] = useState(initialData?.fecha ?? new Date().toISOString().split("T")[0]);
   const [pctInicial, setPctInicial] = useState(initialData != null ? String(initialData.pctInicial) : "");
   const [pctFinal, setPctFinal] = useState(initialData != null ? String(initialData.pctFinal) : "");
@@ -1104,14 +1110,19 @@ function CargaForm({
         <label className="mb-1 block text-xs font-medium text-white/50">Tipo de carga</label>
         <select
           value={tipo}
-          onChange={(e) => setTipo(e.target.value as "CCS2" | "AC 7kW" | "AC 22kW")}
+          onChange={(e) => setTipo(e.target.value as TipoCargaEv)}
           className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
         >
-          <option value="CCS2">CCS2 — Carga rápida</option>
-          <option value="AC 7kW">AC 7kW — Carga lenta</option>
-          <option value="AC 22kW">AC 22kW — Carga semi-rápida</option>
+          {TIPOS_CARGA_EV.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
         </select>
       </div>
+      {tipo === "Casa" && (
+        <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Las cargas en casa ya se calculan desde Centro de Energía. Registra aquí solo recargas externas para evitar duplicar costos.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <InputField label="Batería % inicial" type="number" min="0" max="100" value={pctInicial} onChange={setPctInicial} required />
@@ -1580,13 +1591,16 @@ function HistoryTable({
     });
 
     cargasList.forEach((e) => {
+      const esExterna = isCargaEvExterna(e);
       rows.push({
         id: `ev-${e.id}`,
         fecha: e.fecha,
-        tipo: "Carga EV",
-        descripcion: `${e.tipo} · ${e.kwhCargados.toFixed(1)} kWh`,
+        tipo: esExterna ? "⚡ Recarga EV externa" : "Recarga EV (casa)",
+        descripcion: `${e.tipo} · ${e.kwhCargados.toFixed(1)} kWh · ${e.pctInicial}% → ${e.pctFinal}%`,
         importe: e.costo,
-        observaciones: `${e.pctInicial}% → ${e.pctFinal}% · ${e.kmEvObtenidos.toLocaleString()} km EV`,
+        observaciones: esExterna
+          ? `${e.kmEvObtenidos.toLocaleString()} km EV · suma al gasto eléctrico`
+          : `${e.kmEvObtenidos.toLocaleString()} km EV · no suma (ya en Centro de Energía)`,
         category: "electricidad",
         sortKey: dateSortValue(e.fecha),
         onViewDetail: () => onViewCarga(e),
@@ -5370,11 +5384,13 @@ export default function Home() {
 
   const cargasModuloResumen = useMemo(() => {
     const dbCargas = cargasList.filter((e) => isCargaSupabaseDb(e.id));
+    const externas = dbCargas.filter((e) => isCargaEvExterna(e));
     const totalKwh = Math.round(dbCargas.reduce((s, c) => s + c.kwhCargados, 0) * 10) / 10;
-    const totalGasto = Math.round(dbCargas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
+    const totalGastoExterno = Math.round(externas.reduce((s, c) => s + c.costo, 0) * 100) / 100;
     const totalKm = dbCargas.reduce((s, c) => s + c.kmEvObtenidos, 0);
-    const costoPromKwh = totalKwh > 0 ? Math.round(totalGasto / totalKwh) : 0;
-    return { totalKwh, totalGasto, totalKm, costoPromKwh, count: dbCargas.length };
+    const kwhExterno = externas.reduce((s, c) => s + c.kwhCargados, 0);
+    const costoPromKwh = kwhExterno > 0 ? Math.round(totalGastoExterno / kwhExterno) : 0;
+    return { totalKwh, totalGastoExterno, totalKm, costoPromKwh, count: dbCargas.length, countExternas: externas.length };
   }, [cargasList]);
 
   const handleSave = useCallback(function <T>(key: string, entry: T) {
@@ -5666,11 +5682,15 @@ export default function Home() {
             label="Gasto eléctrico"
             value={formatCurrency(gastoElectricoResuelto.total)}
             sub={
-              gastoElectricoResuelto.source === "centro_energia"
-                ? (tarifaKwhGlobal != null
-                  ? `Centro de Energía · ${formatTarifaKwh(Math.round(tarifaKwhGlobal * 100) / 100)}`
-                  : "Centro de Energía · acumulado BYD")
-                : "Suma de cargas EV registradas"
+              gastoElectricoResuelto.casa > 0 && gastoElectricoResuelto.externo > 0
+                ? `CFE casa + ${formatCurrency(gastoElectricoResuelto.externo)} externas`
+                : gastoElectricoResuelto.casa > 0
+                  ? (tarifaKwhGlobal != null
+                    ? `Centro de Energía · ${formatTarifaKwh(Math.round(tarifaKwhGlobal * 100) / 100)}`
+                    : "Centro de Energía (casa)")
+                  : gastoElectricoResuelto.externo > 0
+                    ? "Recargas externas EV"
+                    : "Sin datos eléctricos"
             }
             color="text-green-400/80"
           />
@@ -5792,9 +5812,9 @@ export default function Home() {
               <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   { label: "Total kWh", val: `${cargasModuloResumen.totalKwh.toFixed(1)} kWh` },
-                  { label: "Gasto cargas", val: formatCurrency(cargasModuloResumen.totalGasto) },
+                  { label: "Gasto externo", val: formatCurrency(cargasModuloResumen.totalGastoExterno) },
                   { label: "Km EV total", val: `${cargasModuloResumen.totalKm.toLocaleString()} km` },
-                  { label: "Promedio/kWh", val: cargasModuloResumen.costoPromKwh > 0 ? formatCurrency(cargasModuloResumen.costoPromKwh) : "—" },
+                  { label: "Promedio/kWh ext.", val: cargasModuloResumen.costoPromKwh > 0 ? formatCurrency(cargasModuloResumen.costoPromKwh) : "—" },
                 ].map((k) => (
                   <div key={k.label} className="rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2">
                     <p className="text-[9px] text-white/30">{k.label}</p>
@@ -5802,10 +5822,8 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-              <p className="mb-2 text-[9px] text-white/25">
-                {gastoElectricoResuelto.source === "centro_energia"
-                  ? "Dashboard: gasto eléctrico desde Centro de Energía (recibos CFE). Totales arriba = solo cargas registradas."
-                  : "Dashboard: gasto eléctrico = suma de cargas EV (sin Centro de Energía)."}
+              <p className="mb-2 text-[9px] text-white/35 leading-relaxed">
+                Registra aquí recargas externas pagadas fuera de casa, como electrolineras, supermercados o cargadores públicos. Estos costos se suman al gasto eléctrico total del BYD.
               </p>
               <div className="space-y-1">
                 {cargasList.map((entry) => (
@@ -5818,7 +5836,12 @@ export default function Home() {
                         ⚡
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium">{entry.tipo}</p>
+                        <p className="truncate text-xs font-medium">
+                          {entry.tipo}
+                          {isCargaEvCasa(entry) && (
+                            <span className="ml-1 text-[9px] text-amber-400/80">· no suma</span>
+                          )}
+                        </p>
                         <p className="text-[10px] text-white/30">
                           {formatDateShort(entry.fecha)} · {entry.kwhCargados} kWh ({entry.pctInicial}% → {entry.pctFinal}%)
                         </p>

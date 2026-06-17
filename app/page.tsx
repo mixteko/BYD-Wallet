@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend, PieChart, Pie, Cell,
@@ -1062,15 +1063,31 @@ function DocumentEntryModal({
   title: string;
   children: React.ReactNode;
 }) {
-  if (!isOpen) return null;
-  return (
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-2 sm:p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-6"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative flex min-h-0 w-[95vw] max-w-[700px] max-h-[85vh] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl"
+        className="relative z-10 m-auto flex w-[min(760px,95vw)] max-h-[85vh] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-3 py-2.5 sm:px-4">
@@ -1090,7 +1107,8 @@ function DocumentEntryModal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

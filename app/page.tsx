@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.2.9";
+const APP_VERSION = "0.5.3.0";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -1936,6 +1936,185 @@ function getBydKwhForPeriod(r: PeriodoElectricoRow, cargas: CargaEntry[]) {
   return { value: rounded, isManual: false };
 }
 
+// ── Mantenimiento BYD King ────────────────────────────────────────────────
+
+const BYD_KING_SERVICIOS: { km: number; meses: number; costo: number }[] = [
+  { km: 15000,  meses: 12,  costo: 2792 },
+  { km: 30000,  meses: 24,  costo: 5278 },
+  { km: 45000,  meses: 36,  costo: 2792 },
+  { km: 60000,  meses: 48,  costo: 8032 },
+  { km: 75000,  meses: 60,  costo: 4509 },
+  { km: 90000,  meses: 72,  costo: 3560 },
+  { km: 105000, meses: 84,  costo: 4509 },
+  { km: 120000, meses: 96,  costo: 8032 },
+  { km: 135000, meses: 108, costo: 2792 },
+  { km: 150000, meses: 120, costo: 5278 },
+];
+
+function getMantenimientoStatus(kmRestantes: number): {
+  color: string;
+  bg: string;
+  label: string;
+  dot: string;
+} {
+  if (kmRestantes <= 0)
+    return { color: "text-red-400",    bg: "bg-red-500/15",    dot: "bg-red-400",    label: "Vencido" };
+  if (kmRestantes <= 500)
+    return { color: "text-orange-400", bg: "bg-orange-500/15", dot: "bg-orange-400", label: "Urgente" };
+  if (kmRestantes <= 2000)
+    return { color: "text-amber-400",  bg: "bg-amber-500/15",  dot: "bg-amber-400",  label: "Próximo" };
+  return   { color: "text-green-400",  bg: "bg-green-500/15",  dot: "bg-green-400",  label: "Al día" };
+}
+
+function SeccionMantenimiento({
+  odometroActual,
+  mantenimientoList,
+}: {
+  odometroActual: number;
+  mantenimientoList: MantenimientoEntry[];
+}) {
+  // Find next service milestone above current odometer
+  const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
+  const anterior = proximo
+    ? (BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.indexOf(proximo) - 1] ?? null)
+    : BYD_KING_SERVICIOS[BYD_KING_SERVICIOS.length - 1];
+
+  const kmRestantes = proximo ? proximo.km - odometroActual : 0;
+  const rangeKm = proximo && anterior ? proximo.km - anterior.km : proximo ? proximo.km : 15000;
+  const kmFromLast = proximo && anterior ? odometroActual - anterior.km : odometroActual;
+  const progressPct = Math.min(100, Math.round((kmFromLast / rangeKm) * 100));
+
+  const status = getMantenimientoStatus(kmRestantes);
+
+  return (
+    <div className="space-y-4">
+      {/* ── Próximo servicio ── */}
+      {proximo ? (
+        <div className={`rounded-xl border border-white/5 p-4 sm:p-5 ${status.bg}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white/80">🔧 Próximo mantenimiento</h3>
+            <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${status.color} ${status.bg} border border-white/5`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+              {status.label}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
+            <div>
+              <p className="text-[11px] text-white/35">Odómetro actual</p>
+              <p className="font-semibold text-white/80">{odometroActual.toLocaleString()} km</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">Próximo servicio</p>
+              <p className={`font-semibold ${status.color}`}>{proximo.km.toLocaleString()} km</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">Km restantes</p>
+              <p className={`font-semibold ${kmRestantes <= 0 ? "text-red-400" : "text-white/80"}`}>
+                {kmRestantes <= 0 ? "Vencido" : `${kmRestantes.toLocaleString()} km`}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-white/35">Costo estimado</p>
+              <p className="font-semibold text-white/80">{formatCurrency(proximo.costo)}</p>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div className="mt-4">
+            <div className="mb-1 flex justify-between text-[10px] text-white/30">
+              <span>{anterior ? anterior.km.toLocaleString() : "0"} km</span>
+              <span>{progressPct}% del intervalo</span>
+              <span>{proximo.km.toLocaleString()} km</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  kmRestantes <= 0 ? "bg-red-400" : kmRestantes <= 500 ? "bg-orange-400" : kmRestantes <= 2000 ? "bg-amber-400" : "bg-green-400"
+                }`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 text-center">
+          <p className="text-sm text-white/40">Odómetro fuera del rango del calendario BYD King (0–150,000 km).</p>
+        </div>
+      )}
+
+      {/* ── Calendario oficial BYD King ── */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-3 text-sm font-semibold text-white/80">📅 Calendario oficial BYD King</h3>
+        <div className="space-y-1.5">
+          {BYD_KING_SERVICIOS.map((s) => {
+            const done = odometroActual >= s.km;
+            const isCurrent = proximo?.km === s.km;
+            return (
+              <div
+                key={s.km}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  isCurrent
+                    ? "border border-white/10 bg-white/[0.05]"
+                    : done
+                    ? "opacity-40"
+                    : "opacity-70"
+                }`}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${done ? "bg-green-400" : isCurrent ? status.dot : "bg-white/20"}`} />
+                <span className="w-28 shrink-0 font-medium text-white/70">
+                  {s.km.toLocaleString()} km
+                </span>
+                <span className="text-[11px] text-white/30">{s.meses} meses</span>
+                <span className="ml-auto text-[11px] font-medium text-white/60">{formatCurrency(s.costo)}</span>
+                {done && <span className="text-[10px] text-green-400/70">✓</span>}
+                {isCurrent && <span className={`text-[10px] font-medium ${status.color}`}>← próximo</span>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-right text-[10px] text-white/20">
+          Total acumulado: {formatCurrency(BYD_KING_SERVICIOS.reduce((s, r) => s + r.costo, 0))}
+        </p>
+      </div>
+
+      {/* ── Historial de mantenimientos ── */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white/80">📋 Historial de mantenimientos</h3>
+          <span className="text-[11px] text-white/30">{mantenimientoList.length} registros</span>
+        </div>
+        {mantenimientoList.length > 0 ? (
+          <div className="space-y-1.5">
+            {mantenimientoList.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-sm">🔧</div>
+                  <div>
+                    <p className="font-medium text-white/70">{entry.servicio}</p>
+                    <p className="text-[11px] text-white/30">
+                      {formatDate(entry.fecha)} · {entry.km.toLocaleString()} km
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-white/60">{formatCurrency(entry.costo)}</p>
+                  <Tag variant={entry.estado === "completado" ? "green" : "amber"}>
+                    {entry.estado === "completado" ? "Completado" : "Pendiente"}
+                  </Tag>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-white/30">No hay registros de mantenimiento aún.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Gráfico histórico (SVG puro, sin librerías) ──────────────────────────
 type GraficoMetrica = "kwh" | "costo" | "promedio";
 
@@ -2964,38 +3143,10 @@ export default function Home() {
 
           {/* ── Mantenimiento ── */}
           {section === "mantenimiento" && (
-            <div>
-              <SectionHeader title="Mantenimiento" count={mantenimientoList.length} onAdd={() => setFormModal("mantenimiento")} />
-              <div className="space-y-2">
-                {mantenimientoList.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2.5 transition-colors hover:bg-white/[0.06] sm:px-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-sm text-white/50">
-                        🔧
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{entry.servicio}</p>
-                        <p className="text-[11px] text-white/30">
-                          {formatDate(entry.fecha)} · {entry.km.toLocaleString()} km
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-white/70">{formatCurrency(entry.costo)}</p>
-                      <Tag variant={entry.estado === "completado" ? "green" : "amber"}>
-                        {entry.estado === "completado" ? "Completado" : "Pendiente"}
-                      </Tag>
-                    </div>
-                  </div>
-                ))}
-                {mantenimientoList.length === 0 && (
-                  <p className="py-8 text-center text-sm text-white/30">No hay registros de mantenimiento</p>
-                )}
-              </div>
-            </div>
+            <SeccionMantenimiento
+              odometroActual={kpis.odometroActual}
+              mantenimientoList={mantenimientoList}
+            />
           )}
 
           {/* ── Historial ── */}

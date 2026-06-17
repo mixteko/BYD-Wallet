@@ -326,7 +326,7 @@ async function fetchPeriodosElectricosFromSupabase(): Promise<PeriodoElectricoRo
   return periodos;
 }
 
-async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "created_at">): Promise<boolean> {
+async function insertPeriodoElectrico(row: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">): Promise<boolean> {
   const sb = getSupabaseClient();
   if (!sb) return false;
   const { error } = await sb.from("periodos_electricos").insert(row as never);
@@ -1706,7 +1706,7 @@ function ReciboForm({
   onSave,
   onClose,
 }: {
-  onSave: (data: Omit<PeriodoElectricoRow, "id" | "created_at">) => Promise<boolean>;
+  onSave: (data: Omit<PeriodoElectricoRow, "id" | "created_at" | "costo_kwh_mxn">) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [fechaInicio, setFechaInicio] = useState("");
@@ -1750,7 +1750,6 @@ function ReciboForm({
       fecha_fin: fechaFin,
       kwh_bimestre: kwhNum,
       costo_total_mxn: totalNum,
-      costo_kwh_mxn: kwhNum > 0 ? totalNum / kwhNum : null,
       proveedor: proveedor || "CFE",
       tarifa: tarifa || null,
       numero_recibo: numRecibo || null,

@@ -5818,16 +5818,29 @@ export default function Home() {
 
   // Seed the 15,000 km service record once if it doesn't already exist
   useEffect(() => {
-    const list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
-    const already = list.some((e) => e.kmProgramado === 15000 || e.km === 15000);
-    if (already) return;
+    const SEED_ID = "seed-mantenimiento-15000";
+    const SEED_FECHA = "2026-04-01";
+    let list = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, []);
+    const seedIdx = list.findIndex(
+      (e) => e.id === SEED_ID || e.kmProgramado === 15000 || e.km === 15000,
+    );
+    if (seedIdx >= 0) {
+      const existing = list[seedIdx];
+      if (existing.fecha === "2025-04-01") {
+        list = [...list];
+        list[seedIdx] = { ...existing, fecha: SEED_FECHA };
+        saveData(KEYS.mantenimiento, list);
+        setKpiVersion((v) => v + 1);
+      }
+      return;
+    }
     const seedChecklist: ChecklistItemState[] = CHECKLIST_ITEMS.map((item) => ({
       id: item.id,
       realizado: true,
     }));
     const seedEntry: MantenimientoEntry = {
-      id: "seed-mantenimiento-15000",
-      fecha: "2025-04-01",
+      id: SEED_ID,
+      fecha: SEED_FECHA,
       servicio: "15,000 km / 12 meses",
       km: 15000,
       costo: 2792,

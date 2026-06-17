@@ -8,7 +8,7 @@ import {
 import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
-const APP_VERSION = "0.5.3.2";
+const APP_VERSION = "0.5.3.3";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -2355,43 +2355,6 @@ function SeccionMantenimiento({
         </div>
       )}
 
-      {/* ── Calendario oficial BYD King ── */}
-      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
-        <h3 className="mb-3 text-sm font-semibold text-white/80">📅 Calendario oficial BYD King</h3>
-        <div className="space-y-1.5">
-          {BYD_KING_SERVICIOS.map((s) => {
-            const done = odometroActual >= s.km;
-            const isCurrent = proximo?.km === s.km;
-            return (
-              <div
-                key={s.km}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                  isCurrent ? "border border-white/10 bg-white/[0.05]" : done ? "opacity-40" : "opacity-70"
-                }`}
-              >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${done ? "bg-green-400" : isCurrent ? status.dot : "bg-white/20"}`} />
-                <span className="w-28 shrink-0 font-medium text-white/70">{s.km.toLocaleString()} km</span>
-                <span className="text-[11px] text-white/30">{s.meses} meses</span>
-                <span className="ml-auto text-[11px] font-medium text-white/60">{formatCurrency(s.costo)}</span>
-                {done && <span className="text-[10px] text-green-400/70">✓</span>}
-                {isCurrent && (
-                  <button
-                    type="button"
-                    onClick={() => onRegistrar(s.km)}
-                    className="rounded border border-byd-500/30 bg-byd-500/10 px-1.5 py-0.5 text-[10px] text-byd-400 hover:bg-byd-500/20"
-                  >
-                    + Registrar
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-right text-[10px] text-white/20">
-          Total acumulado: {formatCurrency(BYD_KING_SERVICIOS.reduce((s, r) => s + r.costo, 0))}
-        </p>
-      </div>
-
       {/* ── Historial de mantenimientos ── */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
         <div className="mb-3 flex items-center justify-between">
@@ -2400,7 +2363,13 @@ function SeccionMantenimiento({
         </div>
         {mantenimientoList.length > 0 ? (
           <div className="space-y-2">
-            {mantenimientoList.map((entry) => {
+            {[...mantenimientoList]
+              .sort((a, b) => {
+                // Sort most-recent first: by fecha desc, then km desc as fallback
+                if (a.fecha && b.fecha) return b.fecha.localeCompare(a.fecha);
+                return b.km - a.km;
+              })
+              .map((entry) => {
               const real = entry.costoReal ?? entry.costo;
               const est = entry.costoEstimado ?? entry.costo;
               const diff = real - est;
@@ -2512,6 +2481,43 @@ function SeccionMantenimiento({
         ) : (
           <p className="py-6 text-center text-sm text-white/30">No hay registros de mantenimiento aún.</p>
         )}
+      </div>
+
+      {/* ── Calendario oficial BYD King ── */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-3 text-sm font-semibold text-white/80">📅 Calendario oficial BYD King</h3>
+        <div className="space-y-1.5">
+          {BYD_KING_SERVICIOS.map((s) => {
+            const done = odometroActual >= s.km;
+            const isCurrent = proximo?.km === s.km;
+            return (
+              <div
+                key={s.km}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  isCurrent ? "border border-white/10 bg-white/[0.05]" : done ? "opacity-40" : "opacity-70"
+                }`}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${done ? "bg-green-400" : isCurrent ? status.dot : "bg-white/20"}`} />
+                <span className="w-28 shrink-0 font-medium text-white/70">{s.km.toLocaleString()} km</span>
+                <span className="text-[11px] text-white/30">{s.meses} meses</span>
+                <span className="ml-auto text-[11px] font-medium text-white/60">{formatCurrency(s.costo)}</span>
+                {done && <span className="text-[10px] text-green-400/70">✓</span>}
+                {isCurrent && (
+                  <button
+                    type="button"
+                    onClick={() => onRegistrar(s.km)}
+                    className="rounded border border-byd-500/30 bg-byd-500/10 px-1.5 py-0.5 text-[10px] text-byd-400 hover:bg-byd-500/20"
+                  >
+                    + Registrar
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-right text-[10px] text-white/20">
+          Total acumulado: {formatCurrency(BYD_KING_SERVICIOS.reduce((s, r) => s + r.costo, 0))}
+        </p>
       </div>
     </div>
   );

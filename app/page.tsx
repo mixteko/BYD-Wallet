@@ -53,9 +53,10 @@ interface VehicleSettings {
   rendimientoKmKwh: number;
   precioGasolina: number;
   totalKm: number;
+  costoKwhManualAlto: number;
 }
 
-type Section = "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes";
+type Section = "gasolina" | "cargas" | "mantenimiento" | "historial" | "tickets" | "reportes" | "energia";
 
 type FormModal = "gasolina" | "carga" | "mantenimiento" | "ticket" | "settings" | null;
 
@@ -129,6 +130,7 @@ const DEFAULT_SETTINGS: VehicleSettings = {
   rendimientoKmKwh: 6.2,
   precioGasolina: 1250,
   totalKm: 15000,
+  costoKwhManualAlto: 5.00,
 };
 
 // ── Initialize only settings on first mount ──────────────────────────────
@@ -1794,12 +1796,163 @@ function ComparativoGasolinaVsElectricidad() {
     </ChartCard>
   );
 }
+
+// ── Energía component ────────────────────────────────────────────────────
+function SeccionEnergia({
+  periodos,
+  cargas,
+  settings,
+}: {
+  periodos: PeriodoElectricoRow[];
+  cargas: CargaEntry[];
+  settings: VehicleSettings;
+}) {
+  if (periodos.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12 text-white/30">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+        <p className="text-sm">No hay recibos CFE registrados todavía.</p>
+      </div>
+    );
+  }
+
+  const ultimoPeriodo = periodos[0];
+  const kwhBimestre = Number(ultimoPeriodo.kwh_bimestre);
+  const costoKwh = ultimoPeriodo.costo_kwh_mxn ? Number(ultimoPeriodo.costo_kwh_mxn) : 0;
+  const ini = ultimoPeriodo.fecha_inicio;
+  const fin = ultimoPeriodo.fecha_fin;
+
+  // Calcular kWh del BYD en el periodo
+  const kwhBydPeriodo = cargas
+    .filter((c) => c.fecha >= ini && c.fecha <= fin)
+    .reduce((sum, c) => sum + c.kwhCargados, 0);
+  const kwhBydRounded = Math.round(kwhBydPeriodo * 10) / 10;
+
+  const kwhCasaEstimado = Math.max(0, kwhBimestre - kwhBydRounded);
+  const pctByd = kwhBimestre > 0 ? Math.round((kwhBydRounded / kwhBimestre) * 100) : 0;
+  const pctCasa = 100 - pctByd;
+
+  const costoBydPromedio = kwhBydRounded * costoKwh;
+  const costoBydConservador = kwhBydRounded * (settings.costoKwhManualAlto || 5);
+  const costoBydPromedioRounded = Math.round(costoBydPromedio * 100) / 100;
+  const costoBydConservadorRounded = Math.round(costoBydConservador * 100) / 100;
+  const costoBydAhorro = Math.max(0, Math.round((costoBydConservador - costoBydPromedio) * 100) / 100);
+  const costoCasapromedio = Math.round(kwhCasaEstimado * costoKwh * 100) / 100;
+
+  const fmt = (n: number) => formatCurrency(n);
+  const fmtNum = (n: number) => n.toLocaleString("es-MX", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  return (
+    <div className="space-y-4">
+      {/* Periodo activo */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Periodo activo</h3>
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div>
+            <p className="text-[11px] text-white/40">Inicio</p>
+            <p className="font-medium text-white/80">{formatDate(ini)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-white/40">Fin</p>
+            <p className="font-medium text-white/80">{formatDate(fin)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-white/40">Consumo total</p>
+            <p className="font-medium text-white/80">{fmtNum(kwhBimestre)} kWh</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-white/40">Costo promedio</p>
+            <p className="font-medium text-white/80">{fmt(costoKwh)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Distribución Casa vs BYD */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Distribución del consumo</h3>
+
+        {/* Barra de progreso visual */}
+        <div className="mb-3 flex h-4 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className="bg-byd-400 transition-all duration-500"
+            style={{ width: `${pctByd}%` }}
+          />
+          <div
+            className="bg-amber-500/40 transition-all duration-500"
+            style={{ width: `${pctCasa}%` }}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-lg bg-byd-500/10 p-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-byd-400" />
+              <span className="text-xs font-medium text-white/50">BYD</span>
+            </div>
+            <p className="mt-1 text-lg font-semibold text-byd-400">{pctByd}%</p>
+            <p className="text-xs text-white/40">{fmtNum(kwhBydRounded)} kWh</p>
+          </div>
+          <div className="rounded-lg bg-amber-500/10 p-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-amber-500/40" />
+              <span className="text-xs font-medium text-white/50">Casa</span>
+            </div>
+            <p className="mt-1 text-lg font-semibold text-amber-400">{pctCasa}%</p>
+            <p className="text-xs text-white/40">{fmtNum(kwhCasaEstimado)} kWh</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Comparativa de costos */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <h3 className="mb-3 text-sm font-semibold text-white/80 sm:text-base">Costo del auto (BYD)</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+            <div>
+              <p className="font-medium text-white/80">Promedio</p>
+              <p className="text-[11px] text-white/30">{fmtNum(kwhBydRounded)} kWh × {fmt(costoKwh)}</p>
+            </div>
+            <p className="font-semibold text-byd-400">{fmt(costoBydPromedioRounded)}</p>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2.5">
+            <div>
+              <p className="font-medium text-white/80">Conservador</p>
+              <p className="text-[11px] text-white/30">{fmtNum(kwhBydRounded)} kWh × {fmt(settings.costoKwhManualAlto)}</p>
+            </div>
+            <p className="font-semibold text-amber-400">{fmt(costoBydConservadorRounded)}</p>
+          </div>
+          {costoBydAhorro > 0 && (
+            <div className="flex items-center justify-between rounded-lg bg-byd-500/5 px-3 py-2.5">
+              <p className="font-medium text-byd-400">Ahorro estimado</p>
+              <p className="font-semibold text-byd-400">{fmt(costoBydAhorro)}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Costo casa */}
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white/80 sm:text-base">Costo de la casa</h3>
+          <p className="text-sm font-semibold text-white">{fmt(costoCasapromedio)}</p>
+        </div>
+        <p className="mt-1 text-xs text-white/30">{fmtNum(kwhCasaEstimado)} kWh × {fmt(costoKwh)}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [section, setSection] = useState<Section>("gasolina");
   const [formModal, setFormModal] = useState<FormModal>(null);
   const [kpiVersion, setKpiVersion] = useState(0);
   const [recargas, setRecargas] = useState<RecargaRow[]>([]);
   const [config, setConfig] = useState<ConfiguracionRow | null>(null);
+  const [periodosElectricos, setPeriodosElectricos] = useState<PeriodoElectricoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1817,7 +1970,8 @@ export default function Home() {
         setConfig(configData);
 
         // Carga adicional de periodos eléctricos (independiente, no bloquea)
-        fetchPeriodosElectricosFromSupabase();
+        const periodosData = await fetchPeriodosElectricosFromSupabase();
+        setPeriodosElectricos(periodosData);
 
         if (recargasData.length === 0) {
           console.warn("[BYD Wallet] No se encontraron recargas en Supabase");
@@ -2024,6 +2178,7 @@ export default function Home() {
           <NavTab active={section === "historial"} label="📋 Historial" onClick={() => setSection("historial")} />
           <NavTab active={section === "tickets"} label="🎫 Tickets" onClick={() => setSection("tickets")} />
           <NavTab active={section === "reportes"} label="📊 Reportes" onClick={() => setSection("reportes")} />
+          <NavTab active={section === "energia"} label="⚡ Energía" onClick={() => setSection("energia")} />
         </nav>
 
         {/* ═══ SECTION CONTENT ═══ */}
@@ -2147,6 +2302,15 @@ export default function Home() {
               <RendimientoHistorico />
               <ComparativoGasolinaVsElectricidad />
             </div>
+          )}
+
+          {/* ── Energía ── */}
+          {section === "energia" && (
+            <SeccionEnergia
+              periodos={periodosElectricos}
+              cargas={cargasList}
+              settings={settings}
+            />
           )}
         </div>
 

@@ -73,6 +73,20 @@ export interface MaintenanceExtraCostRow {
   created_at?: string | null;
 }
 
+export interface CargaElectricaRow {
+  id: number;
+  fecha: string | null;
+  odometro_km: number | null;
+  porcentaje_inicio: number | null;
+  porcentaje_fin: number | null;
+  kwh_estimados: number | null;
+  tarifa_kwh_mxn: number | null;
+  costo_total_mxn: number | null;
+  tipo_carga: string | null;
+  notas: string | null;
+  created_at: string | null;
+}
+
 // ── Client — lazy singleton ──────────────────────────────────────────────
 
 let client: ReturnType<typeof createClient> | null = null;

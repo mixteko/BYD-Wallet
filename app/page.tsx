@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow, type MaintenanceExtraCostRow } from "@/lib/supabase";
+import { getSupabaseClient, type RecargaRow, type ConfiguracionRow, type PeriodoElectricoRow, type MaintenanceRecordRow, type MaintenanceExtraCostRow, type CargaElectricaRow } from "@/lib/supabase";
 
 // ── App version ──────────────────────────────────────────────────────────────
 const APP_VERSION = "0.6.2";
@@ -328,6 +328,91 @@ async function fetchRecargasFromSupabase(): Promise<RecargaRow[]> {
     console.log("[BYD Wallet] Última recarga:", data[data.length - 1]);
   }
   return data || [];
+}
+
+async function fetchCargasElectricasFromSupabase(): Promise<CargaElectricaRow[]> {
+  console.log("[BYD Wallet] Consultando cargas_electricas desde Supabase...");
+  const sb = getSupabaseClient();
+  if (!sb) {
+    console.warn("[BYD Wallet] Cliente Supabase no disponible para cargas_electricas.");
+    return [];
+  }
+  const { data, error } = await sb
+    .from("cargas_electricas")
+    .select("*")
+    .order("fecha", { ascending: false });
+
+  if (error) {
+    console.error("[BYD Wallet] Error al consultar cargas_electricas:", error);
+    return [];
+  }
+
+  console.log("[BYD Wallet] Cargas eléctricas obtenidas:", data?.length ?? 0, "registros");
+  return (data || []) as CargaElectricaRow[];
+}
+
+async function insertCargaElectrica(
+  row: Omit<CargaElectricaRow, "id" | "created_at">
+): Promise<{ id: number | null; error: string | null }> {
+  const sb = getSupabaseClient();
+  if (!sb) {
+    return { id: null, error: "Cliente Supabase no disponible. Verifica .env.local" };
+  }
+
+  const { data, error } = await sb
+    .from("cargas_electricas")
+    .insert(row as never)
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("[BYD Wallet] Error al insertar carga eléctrica:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      payload: row,
+    });
+    return { id: null, error: error.message };
+  }
+
+  const id = (data as { id: number } | null)?.id ?? null;
+  console.log("[BYD Wallet] Carga eléctrica insertada correctamente (id:", id, ")");
+  return { id, error: null };
+}
+
+function mapRecargaEvToCargaEntry(r: RecargaRow, rendimientoKmKwh: number): CargaEntry {
+  const kwhFromDist = Number(r.distancia_km || 0) / rendimientoKmKwh;
+  return {
+    id: `recarga-${r.id}`,
+    fecha: r.fecha,
+    tipo: "CCS2",
+    pctInicial: 0,
+    pctFinal: 100,
+    kwhCargados: Math.round(kwhFromDist * 10) / 10,
+    costo: Number(r.costo_total_mxn),
+    costoPorKwh: Number(r.precio_litro_mxn) || 0,
+    kmEvObtenidos: Number(r.distancia_km || 0),
+  };
+}
+
+function mapCargaElectricaToEntry(r: CargaElectricaRow, rendimientoKmKwh: number): CargaEntry {
+  const kwh = Number(r.kwh_estimados || 0);
+  const costo = Number(r.costo_total_mxn || 0);
+  const tipo = (r.tipo_carga === "AC 7kW" || r.tipo_carga === "AC 22kW" || r.tipo_carga === "CCS2")
+    ? r.tipo_carga
+    : "CCS2";
+  return {
+    id: String(r.id),
+    fecha: r.fecha || "",
+    tipo,
+    pctInicial: Number(r.porcentaje_inicio || 0),
+    pctFinal: Number(r.porcentaje_fin || 100),
+    kwhCargados: kwh,
+    costo,
+    costoPorKwh: Number(r.tarifa_kwh_mxn || 0) || (kwh > 0 ? Math.round(costo / kwh) : 0),
+    kmEvObtenidos: kwh > 0 ? Math.round(kwh * rendimientoKmKwh) : 0,
+  };
 }
 
 async function fetchConfigFromSupabase(): Promise<ConfiguracionRow | null> {
@@ -896,15 +981,21 @@ function GasolinaForm({
 function CargaForm({
   onSave,
   onClose,
+  saving = false,
+  externalError = null,
 }: {
-  onSave: (entry: CargaEntry) => void;
+  onSave: (entry: CargaEntry) => void | Promise<void>;
   onClose: () => void;
+  saving?: boolean;
+  externalError?: string | null;
 }) {
   const [tipo, setTipo] = useState<"CCS2" | "AC 7kW" | "AC 22kW">("CCS2");
   const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
   const [pctInicial, setPctInicial] = useState("");
   const [pctFinal, setPctFinal] = useState("");
   const [costoTotal, setCostoTotal] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
   const capacidadBateria = settings.capacidadBateria || 8.3;
@@ -916,13 +1007,34 @@ function CargaForm({
   const costo = parseInt(costoTotal) || 0;
   const costoPorKwh = kwhCargados > 0 ? Math.round(costo / kwhCargados) : 0;
   const kmEvObtenidos = kwhCargados > 0 ? Math.round(kwhCargados * settings.rendimientoKmKwh) : 0;
+  const displayError = formError || externalError;
+  const busy = saving || isSubmitting;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pctFin <= pctIni) {
-      alert("El porcentaje final debe ser mayor al inicial");
+    setFormError(null);
+
+    if (!fecha.trim()) {
+      setFormError("La fecha es requerida.");
       return;
     }
+    if (pctInicial === "" || pctFinal === "") {
+      setFormError("Indica el porcentaje inicial y final de batería.");
+      return;
+    }
+    if (pctFin <= pctIni) {
+      setFormError("El porcentaje final debe ser mayor al inicial.");
+      return;
+    }
+    if (kwhCargados <= 0) {
+      setFormError("Los kWh calculados deben ser mayores a 0.");
+      return;
+    }
+    if (costo <= 0) {
+      setFormError("El costo total debe ser mayor a 0.");
+      return;
+    }
+
     const entry: CargaEntry = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
       fecha,
@@ -934,7 +1046,17 @@ function CargaForm({
       costoPorKwh,
       kmEvObtenidos,
     };
-    onSave(entry);
+
+    setIsSubmitting(true);
+    try {
+      await onSave(entry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo guardar la carga eléctrica.";
+      setFormError(message);
+      console.error("[BYD Wallet] Error en formulario Carga EV:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -981,12 +1103,17 @@ function CargaForm({
       </div>
 
       <InputField label="Costo total ($)" type="number" value={costoTotal} onChange={setCostoTotal} required />
+      {displayError && (
+        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          {displayError}
+        </p>
+      )}
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10">
+        <button type="button" onClick={onClose} disabled={busy} className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10 disabled:opacity-50">
           Cancelar
         </button>
-        <button type="submit" className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400">
-          Guardar
+        <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-byd-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-byd-400 disabled:opacity-50">
+          {busy ? "Guardando..." : "Guardar"}
         </button>
       </div>
     </form>
@@ -4888,6 +5015,7 @@ export default function Home() {
   const [formModal, setFormModal] = useState<FormModal>(null);
   const [kpiVersion, setKpiVersion] = useState(0);
   const [recargas, setRecargas] = useState<RecargaRow[]>([]);
+  const [cargasElectricasDb, setCargasElectricasDb] = useState<CargaElectricaRow[]>([]);
   const [config, setConfig] = useState<ConfiguracionRow | null>(null);
   const [periodosElectricos, setPeriodosElectricos] = useState<PeriodoElectricoRow[]>([]);
   const [maintenanceRecordsDb, setMaintenanceRecordsDb] = useState<MaintenanceRecordRow[]>([]);
@@ -4907,6 +5035,8 @@ export default function Home() {
   const [showOtroCostoForm, setShowOtroCostoForm] = useState(false);
   const [editingOtroCosto, setEditingOtroCosto] = useState<OtroCostoEntry | null>(null);
   const [deletingOtroCosto, setDeletingOtroCosto] = useState<OtroCostoEntry | null>(null);
+  const [cargaSaveError, setCargaSaveError] = useState<string | null>(null);
+  const [savingCarga, setSavingCarga] = useState(false);
 
   // Fetch from Supabase on mount
   useEffect(() => {
@@ -4914,12 +5044,14 @@ export default function Home() {
       try {
         setLoading(true);
         setError(null);
-        const [recargasData, configData] = await Promise.all([
+        const [recargasData, configData, cargasElectricasData] = await Promise.all([
           fetchRecargasFromSupabase(),
           fetchConfigFromSupabase(),
+          fetchCargasElectricasFromSupabase(),
         ]);
         setRecargas(recargasData);
         setConfig(configData);
+        setCargasElectricasDb(cargasElectricasData);
 
         // Carga adicional de periodos eléctricos (independiente, no bloquea)
         const [periodosData, maintenanceData, extraCostsData] = await Promise.all([
@@ -4936,6 +5068,7 @@ export default function Home() {
         } else {
           console.log("[BYD Wallet] Datos cargados exitosamente:", {
             recargas: recargasData.length,
+            cargasElectricas: cargasElectricasData.length,
             config: configData ? "OK" : "null",
           });
         }
@@ -5035,25 +5168,26 @@ export default function Home() {
       .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha)),
     [recargas]);
 
-  // Map recargas with kWh to CargaEntry-like format
-  const cargasList = useMemo(() =>
-    recargas
-      .filter((r) => r.tipo_combustible === "Electricidad" || r.tipo_combustible === "EV")
-      .map((r) => ({
-        id: String(r.id),
-        fecha: r.fecha,
-        tipo: "CCS2" as const,
-        pctInicial: 0,
-        pctFinal: 100,
-        kwhCargados: Number(r.distancia_km || 0) / 6.2,
-        costo: Number(r.costo_total_mxn),
-        costoPorKwh: Number(r.precio_litro_mxn) || 0,
-        kmEvObtenidos: Number(r.distancia_km || 0),
-      }))
-      .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha)),
-    [recargas]);
-
   const settings = loadData<VehicleSettings>(KEYS.settings, DEFAULT_SETTINGS);
+
+  // Map cargas eléctricas desde Supabase + legacy recargas EV + localStorage pendiente
+  const cargasList = useMemo(() => {
+    const rendimientoKmKwh = settings.rendimientoKmKwh || 6.2;
+    const fromDb = cargasElectricasDb.map((r) => mapCargaElectricaToEntry(r, rendimientoKmKwh));
+    const dbIds = new Set(fromDb.map((e) => e.id));
+
+    const fromRecargas = recargas
+      .filter((r) => r.tipo_combustible === "Electricidad" || r.tipo_combustible === "EV")
+      .map((r) => mapRecargaEvToCargaEntry(r, rendimientoKmKwh))
+      .filter((e) => !dbIds.has(e.id));
+
+    const localOnly = loadData<CargaEntry[]>(KEYS.cargas, [])
+      .filter((e) => !dbIds.has(e.id) && !fromRecargas.some((r) => r.id === e.id));
+
+    return [...fromDb, ...fromRecargas, ...localOnly]
+      .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
+  }, [cargasElectricasDb, recargas, settings.rendimientoKmKwh, kpiVersion]);
+
   const mantenimientoList = loadData<MantenimientoEntry[]>(KEYS.mantenimiento, [])
     .sort((a, b) => dateSortValue(b.fecha) - dateSortValue(a.fecha));
   const otrosCostosList = loadData<OtroCostoEntry[]>(KEYS.otrosCostos, [])
@@ -5122,6 +5256,37 @@ export default function Home() {
     const list = loadData<T[]>(key, []);
     saveData(key, [...list, entry]);
     setKpiVersion((v) => v + 1);
+  }, []);
+
+  const handleSaveCarga = useCallback(async function (entry: CargaEntry) {
+    setCargaSaveError(null);
+    setSavingCarga(true);
+
+    const result = await insertCargaElectrica({
+      fecha: entry.fecha,
+      odometro_km: null,
+      porcentaje_inicio: entry.pctInicial,
+      porcentaje_fin: entry.pctFinal,
+      kwh_estimados: entry.kwhCargados,
+      tarifa_kwh_mxn: entry.costoPorKwh,
+      costo_total_mxn: entry.costo,
+      tipo_carga: entry.tipo,
+      notas: null,
+    });
+
+    setSavingCarga(false);
+
+    if (result.error || result.id == null) {
+      const message = result.error
+        || "No se pudo guardar la carga en Supabase. Verifica permisos RLS en cargas_electricas.";
+      setCargaSaveError(message);
+      throw new Error(message);
+    }
+
+    const refreshed = await fetchCargasElectricasFromSupabase();
+    setCargasElectricasDb(refreshed);
+    setCargaSaveError(null);
+    setFormModal(null);
   }, []);
 
   const handleUpdateGasolina = useCallback(function (updated: GasolinaEntry) {
@@ -5430,7 +5595,14 @@ export default function Home() {
           {/* ── Cargas EV ── */}
           {section === "cargas" && (
             <div>
-              <SectionHeader title="Cargas eléctricas" count={cargasList.length} onAdd={() => setFormModal("carga")} />
+              <SectionHeader
+                title="Cargas eléctricas"
+                count={cargasList.length}
+                onAdd={() => {
+                  setCargaSaveError(null);
+                  setFormModal("carga");
+                }}
+              />
               <div className="space-y-1">
                 {cargasList.map((entry) => (
                   <div
@@ -5541,13 +5713,26 @@ export default function Home() {
         />
       </Modal>
 
-      <Modal isOpen={formModal === "carga"} onClose={() => setFormModal(null)} title="Agregar carga eléctrica">
-        <CargaForm
-          onSave={(entry) => {
-            handleSave(KEYS.cargas, entry);
+      <Modal
+        isOpen={formModal === "carga"}
+        onClose={() => {
+          if (!savingCarga) {
+            setCargaSaveError(null);
             setFormModal(null);
+          }
+        }}
+        title="Agregar carga eléctrica"
+      >
+        <CargaForm
+          onSave={handleSaveCarga}
+          onClose={() => {
+            if (!savingCarga) {
+              setCargaSaveError(null);
+              setFormModal(null);
+            }
           }}
-          onClose={() => setFormModal(null)}
+          saving={savingCarga}
+          externalError={cargaSaveError}
         />
       </Modal>
 

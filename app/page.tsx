@@ -1078,11 +1078,18 @@ function DocumentEntryModal({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("[data-ticket-form-scroll]")?.scrollTo(0, 0);
+    });
+  }, [isOpen]);
+
   if (!isOpen || !mounted) return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-6"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden p-6"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -1422,6 +1429,87 @@ function TicketEstadoBadge({ estado }: { estado: TicketEstado }) {
   );
 }
 
+function TicketCategoriaSelect({
+  value,
+  onChange,
+}: {
+  value: TicketCategoria | "";
+  onChange: (v: TicketCategoria) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.scrollTo(0, 0);
+    const onDocClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const selected = value ? TICKET_CATEGORIAS.find((c) => c.id === value) : null;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label className="mb-1 block text-xs font-medium text-white/50">Categoría</label>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-left text-xs outline-none transition-colors focus:border-byd-500/50"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={selected ? "text-white" : "text-white/40"}>
+          {selected ? `${selected.icon} ${selected.label}` : "Selecciona una categoría"}
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 text-white/40 transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          ref={listRef}
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto overscroll-contain rounded-lg border border-white/10 bg-[#0d1117] py-1 shadow-xl"
+        >
+          {TICKET_CATEGORIAS.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="option"
+              aria-selected={value === c.id}
+              onClick={() => {
+                onChange(c.id);
+                setOpen(false);
+              }}
+              className={`flex w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-white/10 ${
+                value === c.id ? "bg-byd-500/10 text-byd-400" : "text-white/80"
+              }`}
+            >
+              {c.icon} {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketForm({
   onSave,
   onClose,
@@ -1434,8 +1522,8 @@ function TicketForm({
   isEdit?: boolean;
 }) {
   const [titulo, setTitulo] = useState(initialData?.titulo ?? "");
-  const [categoria, setCategoria] = useState<TicketCategoria>(
-    initialData?.categoria ?? "otro",
+  const [categoria, setCategoria] = useState<TicketCategoria | "">(
+    initialData?.categoria ?? TICKET_CATEGORIAS[0].id,
   );
   const [proveedor, setProveedor] = useState(initialData?.proveedor ?? "");
   const [monto, setMonto] = useState(initialData != null ? String(initialData.monto || "") : "");
@@ -1446,6 +1534,11 @@ function TicketForm({
   const [estado, setEstado] = useState<TicketEstado>(initialData?.estado ?? "ocr_pendiente");
   const [imageBase64, setImageBase64] = useState(initialData?.imageBase64 ?? "");
   const [preview, setPreview] = useState<string | null>(initialData?.imageBase64 ?? null);
+  const formScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    formScrollRef.current?.scrollTo(0, 0);
+  }, [initialData?.id, isEdit]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1465,7 +1558,7 @@ function TicketForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!imageBase64) return;
+    if (!imageBase64 || !categoria) return;
     const resolvedEstado: TicketEstado =
       initialData?.vinculadoA ? "vinculado" : estado;
     const entry: TicketEntry = normalizeTicket({
@@ -1489,22 +1582,18 @@ function TicketForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5">
+      <div
+        ref={formScrollRef}
+        data-ticket-form-scroll
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5"
+      >
         <InputField label="Título" type="text" value={titulo} onChange={setTitulo} placeholder="ej. Recarga gasolina Pemex" required />
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-white/50">Categoría</label>
-            <select
-              value={categoria}
-              onChange={(e) => setCategoria(e.target.value as TicketCategoria)}
-              className="w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white outline-none transition-colors focus:border-byd-500/50"
-            >
-              {TICKET_CATEGORIAS.map((c) => (
-                <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
-              ))}
-            </select>
-          </div>
+          <TicketCategoriaSelect
+            value={categoria}
+            onChange={setCategoria}
+          />
           <InputField label="Proveedor" type="text" value={proveedor} onChange={setProveedor} placeholder="ej. Copec, Enel X, CFE" />
         </div>
 

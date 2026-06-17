@@ -1,10 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 // ── Types matching Supabase tables ───────────────────────────────────────
 
 export interface RecargaRow {
@@ -35,4 +30,32 @@ export interface ConfiguracionRow {
   tarifa_cfe_mxn_kwh: number;
   odometro_inicial_km: number;
   odometro_actual_km: number;
+}
+
+// ── Client — lazy singleton ──────────────────────────────────────────────
+
+let client: ReturnType<typeof createClient> | null = null;
+
+export function getSupabaseClient() {
+  if (client) return client;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    console.error(
+      "[Supabase] NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY no están definidos.",
+      "Verifica que exista un archivo .env.local con ambas variables."
+    );
+    return null;
+  }
+
+  if (url.includes("TU_PROYECTO") || key.includes("TU_ANON_KEY")) {
+    console.error("[Supabase] Las credenciales en .env.local aún tienen valores placeholder.");
+    return null;
+  }
+
+  console.log("[Supabase] Cliente inicializado con URL:", url);
+  client = createClient(url, key);
+  return client;
 }

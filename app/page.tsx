@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line, CartesianGrid, Legend,
 } from "recharts";
-import { supabase, type RecargaRow, type ConfiguracionRow } from "@/lib/supabase";
+import { getSupabaseClient, type RecargaRow, type ConfiguracionRow } from "@/lib/supabase";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GasolinaEntry {
@@ -194,7 +194,14 @@ function isThisYear(d: Date, ref: Date): boolean {
 // ── Supabase data fetching ───────────────────────────────────────────────────
 async function fetchRecargasFromSupabase(): Promise<RecargaRow[]> {
   console.log("[BYD Wallet] Consultando recargas desde Supabase...");
-  const { data, error } = await supabase
+  const sb = getSupabaseClient();
+  if (!sb) {
+    console.warn("[BYD Wallet] Cliente Supabase no disponible (credenciales faltantes).");
+    console.log("[BYD Wallet] NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.log("[BYD Wallet] NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "✓ definida" : "✗ faltante");
+    return [];
+  }
+  const { data, error } = await sb
     .from("recargas")
     .select("*")
     .order("fecha", { ascending: false });
@@ -207,13 +214,16 @@ async function fetchRecargasFromSupabase(): Promise<RecargaRow[]> {
   console.log("[BYD Wallet] Recargas obtenidas:", data?.length ?? 0, "registros");
   if (data && data.length > 0) {
     console.log("[BYD Wallet] Primera recarga:", data[0]);
+    console.log("[BYD Wallet] Última recarga:", data[data.length - 1]);
   }
   return data || [];
 }
 
 async function fetchConfigFromSupabase(): Promise<ConfiguracionRow | null> {
   console.log("[BYD Wallet] Consultando configuracion desde Supabase...");
-  const { data, error } = await supabase
+  const sb = getSupabaseClient();
+  if (!sb) return null;
+  const { data, error } = await sb
     .from("configuracion")
     .select("*")
     .limit(1);

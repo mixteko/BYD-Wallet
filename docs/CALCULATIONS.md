@@ -162,7 +162,7 @@ Interpretación:
 | 85–94 | Muy eficiente |
 | 70–84 | Eficiencia buena |
 | 50–69 | Puede mejorar |
-| &lt;50 | Uso poco eficiente |
+| <50 | Uso poco eficiente |
 
 Funciones: `calculateIndiceEficienciaHibrida()`, `interpretIndiceEficienciaHibrida()`  
 Visible en **Dashboard** (sustituye Eficiencia global en el panel Eficiencia y Costos).
@@ -192,8 +192,56 @@ Función: `calculateAverageKwhRate()`
 | Evolución 12 meses / comparativo | `buildMonthlyExpenseBreakdown12()` |
 | Gasto por día (7 días) | `buildDailyExpenseLast7Days()` |
 | Eficiencia y Costos (panel) | `calculateEfficiencyAndCosts()` |
-| Rendimiento histórico (Reportes) | `buildFuelEfficiencyHistory()` + `buildEvEfficiencyHistory()` — solo Km/L Gasolina y Km/kWh Eléctrico |
+| Rendimiento histórico (Reportes) | `buildEfficiencySeries()` → 3 series: Km/L Gasolina, Km/kWh eléctrico estimado, Km/L global |
 | IEH (Dashboard) | `calculateIndiceEficienciaHibrida()` |
+
+---
+
+## Rendimiento histórico (Reportes) — Detalle de 3 series
+
+Disponible en Reportes → Rendimiento Histórico. La gráfica muestra tres líneas simultáneamente.
+
+### Km/L Gasolina
+```
+km recorridos entre recargas consecutivas ÷ litros cargados en la recarga
+```
+- Por cada par de recargas consecutivas (ordenadas por fecha y odómetro).
+- Función: `buildFuelEfficiencyHistory()`
+- Etiqueta en gráfica: **Km/L Gasolina**
+
+### Km/kWh eléctrico estimado
+```
+km EV estimados ÷ kWh cargados
+```
+- Por cada carga EV con `kwhCargados > 0`.
+- `kmEvObtenidos` se usa si está registrado; si no, se estima como:
+  ```
+  km EV estimados = kWh cargados × rendimientoKmKwh (configurable, default 6.2)
+  ```
+- El resultado siempre es ≈ `rendimientoKmKwh` (6.2 km/kWh) cuando no hay km EV reales.
+- **Aunque sea estimado, se muestra en la gráfica.**
+- Función: `buildEvEfficiencyHistory()`
+- Etiqueta en gráfica: **Km/kWh eléctrico estimado**
+
+### Km/L global
+```
+km totales acumulados (desde la primera recarga) ÷ litros totales acumulados
+```
+- Promedio acumulado progresivo: cada punto representa el rendimiento global desde el inicio hasta esa recarga.
+- Esta línea tiende a estabilizarse conforme aumentan los datos.
+- Función: `buildGlobalFuelEfficiencyHistory()`
+- Etiqueta en gráfica: **Km/L global**
+- Tooltip: *"Km totales recorridos por litro de gasolina, considerando apoyo eléctrico."*
+
+### Dataset unificado
+Las 3 series se fusionan en un solo `chartData[]` con la estructura:
+```
+{ label: string; kmL: number | null; kmKwh: number | null; kmLGlobal: number | null }
+```
+Cada índice `i` del array representa el i-ésimo punto de cada serie. Si una serie tiene menos puntos que otra, sus valores son `null` para los índices faltantes.
+Función: `buildEfficiencyChartData()` → usada internamente por `buildEfficiencySeries()`.
+
+**Importante:** El km/kWh puede ser estimado si no hay km EV reales registrados. Esto es intencional para proporcionar visibilidad del rendimiento eléctrico aunque sea aproximado.
 
 ---
 

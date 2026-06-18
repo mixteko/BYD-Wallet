@@ -1024,28 +1024,32 @@ export type EfficiencySeriesPoint = {
   label: string;
   kmL: number | null;
   kmKwh: number | null;
+  kmLGlobal: number | null;
 };
 
 export type EfficiencySeriesResult = {
   gasolineSeries: RefillEfficiencyPoint[];
   electricSeries: ChargeEfficiencyPoint[];
+  globalSeries: GlobalEfficiencyPoint[];
   chartData: EfficiencySeriesPoint[];
 };
 
 function buildEfficiencyChartData(
   gasolineSeries: RefillEfficiencyPoint[],
   electricSeries: ChargeEfficiencyPoint[],
+  globalSeries: GlobalEfficiencyPoint[],
 ): EfficiencySeriesPoint[] {
-  const maxLen = Math.max(gasolineSeries.length, electricSeries.length, 0);
+  const maxLen = Math.max(gasolineSeries.length, electricSeries.length, globalSeries.length, 0);
   if (maxLen === 0) return [];
   return Array.from({ length: maxLen }, (_, i) => ({
     label: `#${i + 1}`,
     kmL: gasolineSeries[i]?.kmL ?? null,
     kmKwh: electricSeries[i]?.kmKwh ?? null,
+    kmLGlobal: globalSeries[i]?.kmLGlobal ?? null,
   }));
 }
 
-/** Series de rendimiento histórico: gasolina + eléctrico (sin global ni equivalencias). */
+/** Series de rendimiento histórico: gasolina + eléctrico + global. */
 export function buildEfficiencySeries(
   fuelRows: FuelRow[],
   electricCharges: ElectricChargeRow[],
@@ -1053,10 +1057,12 @@ export function buildEfficiencySeries(
 ): EfficiencySeriesResult {
   const gasolineSeries = buildFuelEfficiencyHistory(fuelRows);
   const electricSeries = buildEvEfficiencyHistory(electricCharges, rendimientoKmKwh);
+  const globalSeries = buildGlobalFuelEfficiencyHistory(fuelRows);
   return {
     gasolineSeries,
     electricSeries,
-    chartData: buildEfficiencyChartData(gasolineSeries, electricSeries),
+    globalSeries,
+    chartData: buildEfficiencyChartData(gasolineSeries, electricSeries, globalSeries),
   };
 }
 

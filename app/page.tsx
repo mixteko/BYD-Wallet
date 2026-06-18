@@ -2569,10 +2569,11 @@ function RendimientoHistorico({
     () => buildEfficiencySeries(gasolinaList, cargasList, rendimiento),
     [gasolinaList, cargasList, rendimiento],
   );
-  const { gasolineSeries, electricSeries, chartData } = series;
+  const { gasolineSeries, electricSeries, globalSeries, chartData } = series;
   const hasGasolina = gasolineSeries.length > 0;
   const hasEvChargesWithKwh = cargasList.some((c) => c.kwhCargados > 0);
   const hasElectricidad = electricSeries.length > 0;
+  const hasGlobal = globalSeries.length > 0;
 
   if (!hasGasolina && !hasElectricidad) {
     return (
@@ -2641,7 +2642,19 @@ function RendimientoHistorico({
               strokeWidth={1.5}
               dot={{ r: 3, fill: "#0ea5e9" }}
               connectNulls
-              name="Km/kWh Eléctrico estimado"
+              name="Km/kWh eléctrico estimado"
+            />
+          )}
+          {hasGlobal && (
+            <Line
+              yAxisId="gasolina"
+              type="monotone"
+              dataKey="kmLGlobal"
+              stroke="#22c55e"
+              strokeWidth={1.5}
+              dot={{ r: 2, fill: "#22c55e" }}
+              connectNulls={false}
+              name="Km/L global"
             />
           )}
         </LineChart>

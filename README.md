@@ -14,22 +14,25 @@ npm install
 npm run dev
 ```
 
-Abrir [http://localhost:3000](http://localhost:3000) en el navegador.
+Abrir [http://localhost:3001](http://localhost:3001) en el navegador.
 
 ## Flujo de trabajo
 
 1. Hacer cambios locales en `app/page.tsx` u otros archivos
-2. Probar en http://localhost:3000
-3. Commit en la rama actual
-4. Push a `origin/cursor/fix-date-format-odometro`
-5. Ignorar el mensaje "Create PR" que aparece en GitHub (no afecta el desarrollo local)
-
-> No se usa `main` durante desarrollo activo. No se utilizan Pull Requests.
+2. Probar en http://localhost:3001
+3. Commit en `main`
+4. Push a `origin/main`
 
 ## Rama activa
 
 ```
-cursor/fix-date-format-odometro
+main
+```
+
+## Versión
+
+```
+v0.6.5
 ```
 
 ## Legacy

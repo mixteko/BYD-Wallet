@@ -327,7 +327,8 @@ function loadData<T>(key: string, fallback: T): T {
     const raw = localStorage.getItem(key);
     if (raw === null) return fallback;
     return JSON.parse(raw) as T;
-  } catch {
+  } catch (err) {
+    console.error("loadData: error leyendo localStorage key:", key, err);
     return fallback;
   }
 }
@@ -336,9 +337,16 @@ function saveData<T>(key: string, data: T): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(key, JSON.stringify(data));
-  } catch {
-    // storage full or unavailable
+  } catch (err) {
+    console.warn("saveData: localStorage write failed for key:", key, err);
   }
+}
+
+function generateId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random()}`;
 }
 
 // ── Default settings (used when no config saved) ─────────────────────────
@@ -1204,7 +1212,7 @@ function GasolinaForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const entry: GasolinaEntry = {
-      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
+      id: initialData?.id || generateId(),
       fecha,
       litros: parseFloat(litros) || 0,
       costo: parseInt(costo) || 0,
@@ -1297,7 +1305,7 @@ function CargaForm({
     }
 
     const entry: CargaEntry = {
-      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
+      id: initialData?.id || generateId(),
       fecha,
       tipo,
       pctInicial: pctIni,
@@ -1402,7 +1410,7 @@ function MantenimientoForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const entry: MantenimientoEntry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2),
+      id: generateId(),
       fecha: new Date().toISOString().split("T")[0],
       servicio,
       km: parseInt(km) || 0,
@@ -1586,7 +1594,7 @@ function TicketForm({
     const resolvedEstado: TicketEstado =
       initialData?.vinculadoA ? "vinculado" : estado;
     const entry: TicketEntry = normalizeTicket({
-      id: initialData?.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)),
+      id: initialData?.id || generateId(),
       fecha: initialData?.fecha ?? new Date().toISOString().split("T")[0],
       titulo,
       categoria,
@@ -2480,7 +2488,7 @@ function GastoPorDia({
           <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
-            formatter={(value: any) => [formatCurrency(Number(value)), "Gasto"]}
+            formatter={(value) => [formatCurrency(Number(value)), "Gasto"]}
           />
           <Area type="monotone" dataKey="gasto" stroke="#12b8a0" strokeWidth={1.5} fill="url(#gastoDia)" />
         </AreaChart>
@@ -2689,7 +2697,7 @@ function ComparativoGasolinaVsElectricidad({
           <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} width={28} />
           <Tooltip
             contentStyle={{ background: "#0d1117", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 10, color: "rgba(255,255,255,0.8)" }}
-            formatter={(value: any, name: any) => {
+            formatter={(value, name) => {
               const label = name === "gasolina" ? "Gasolina" : "Electricidad";
               return [formatCurrency(Number(value)), label];
             }}
@@ -3340,7 +3348,7 @@ function RegistrarServicioForm({
     if (isNaN(costo) || costo < 0) { setError("El costo real no puede ser negativo."); return; }
 
     const entry: MantenimientoEntry = {
-      id: initialData?.id ?? String(Date.now()),
+      id: initialData?.id ?? generateId(),
       fecha,
       servicio: `Servicio ${sched.km.toLocaleString()} km`,
       km: odo,
@@ -4000,7 +4008,7 @@ function OtroCostoForm({
     if (!concepto.trim()) { setError("El concepto es requerido."); return; }
     if (isNaN(costoNum) || costoNum < 0) { setError("El costo debe ser mayor o igual a 0."); return; }
     const entry: OtroCostoEntry = {
-      id: initialData?.id ?? String(Date.now()),
+      id: initialData?.id ?? generateId(),
       fecha,
       odometro: odometro ? parseInt(odometro) : undefined,
       concepto: concepto.trim(),
@@ -4101,12 +4109,51 @@ function SeccionMantenimiento({
   }
 
   function verAdjunto(adjunto: NonNullable<MantenimientoEntry["adjunto"]>) {
+    const ALLOWED_MIME = new Set([
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+      "application/pdf",
+    ]);
+    const BLOCKED_MIME = new Set([
+      "image/svg+xml",
+      "text/html",
+      "application/xhtml+xml",
+    ]);
+
+    if (BLOCKED_MIME.has(adjunto.tipo) || !ALLOWED_MIME.has(adjunto.tipo)) {
+      console.warn("verAdjunto: tipo MIME no permitido:", adjunto.tipo);
+      return;
+    }
+
+    const expectedPrefix = `data:${adjunto.tipo};base64,`;
+    if (!adjunto.data.startsWith(expectedPrefix)) {
+      console.warn("verAdjunto: data URL no coincide con el tipo declarado");
+      return;
+    }
+    const base64Part = adjunto.data.slice(expectedPrefix.length);
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64Part)) {
+      console.warn("verAdjunto: contenido base64 inválido");
+      return;
+    }
+
     const win = window.open("", "_blank");
     if (!win) return;
+
     if (adjunto.tipo.startsWith("image/")) {
-      win.document.write(`<html><body style="margin:0;background:#000"><img src="${adjunto.data}" style="max-width:100%;display:block;margin:auto"></body></html>`);
+      const img = win.document.createElement("img");
+      img.src = adjunto.data;
+      img.style.cssText = "max-width:100%;display:block;margin:auto";
+      win.document.body.style.cssText = "margin:0;background:#000";
+      win.document.body.appendChild(img);
     } else {
-      win.document.write(`<html><body style="margin:0"><embed src="${adjunto.data}" width="100%" height="100%" type="${adjunto.tipo}"></body></html>`);
+      const embed = win.document.createElement("embed");
+      embed.src = adjunto.data;
+      embed.style.cssText = "width:100%;height:100%";
+      embed.type = adjunto.tipo;
+      win.document.body.style.cssText = "margin:0";
+      win.document.body.appendChild(embed);
     }
   }
   const proximo = BYD_KING_SERVICIOS.find((s) => s.km > odometroActual) ?? null;
@@ -5886,7 +5933,6 @@ export default function Home() {
     };
     saveData(KEYS.mantenimiento, [seedEntry]);
     setKpiVersion((v) => v + 1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const today = new Date();
@@ -6151,7 +6197,9 @@ export default function Home() {
         agencia: entry.agencia ?? null,
         notas: entry.notas ?? null,
         estado: entry.estado,
-      }).catch(() => {});
+      }).catch((err) => {
+        console.error("Supabase insert mantenimiento failed:", err);
+      });
     }
     setRegistrarServicioKm(null);
     setEditingMantenimiento(null);

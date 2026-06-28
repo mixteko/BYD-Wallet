@@ -1,11 +1,13 @@
 {
   "name": "byd-wallet",
-  "version": "0.1.0",
+  "version": "0.6.5",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3001",
     "build": "next build",
-    "start": "next start",
+    "build:autostart": "BYD_LOCAL_AUTOSTART=1 next build",
+    "start": "next start --port 3001",
+    "start:autostart": "BYD_LOCAL_AUTOSTART=1 next start --port 3001",
     "lint": "eslint"
   },
   "dependencies": {

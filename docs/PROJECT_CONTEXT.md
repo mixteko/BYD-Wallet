@@ -54,7 +54,7 @@ Next.js 16 (App Router)
 
 ## Flujo de trabajo
 
-1. El usuario abre `localhost:3000` (dev) o la URL de GitHub Pages
+1. El usuario abre `localhost:3001` (dev) o la URL de GitHub Pages
 2. Next.js renderiza el layout (`app/layout.tsx`) con Tailwind y fuentes Geist
 3. El componente `Home` en `app/page.tsx` se monta como `"use client"`
 4. En el `useEffect` de mount:
